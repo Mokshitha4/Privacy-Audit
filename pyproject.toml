@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "privaudit"
+version = "0.1.0"
+description = "Local-first privacy-leakage audit package for fine-tuned clinical LLMs (EM, MIA, EZ-MIA)."
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.40",
+    "peft>=0.10",
+    "scikit-learn>=1.3",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "jsonschema>=4.17",
+]
+
+[project.optional-dependencies]
+bertscore = ["bert-score>=0.3.13"]
+ui = ["gradio>=4.0"]
+dev = ["pytest>=7.4", "gradio>=4.0"]
+
+[project.scripts]
+privaudit = "privaudit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["privaudit", "privaudit.*"]

@@ -1,0 +1,23 @@
+# Original research folders -- superseded by the privaudit package, not needed for it to run
+MIA/
+EZ-MIA/
+Exact Memorization/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Test / tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / OS
+.DS_Store
