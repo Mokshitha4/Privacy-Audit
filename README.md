@@ -19,8 +19,6 @@ metric should be trusted alone.
 | `MIA`      | Membership Inference — a Random Forest over per-sequence loss/perplexity/confidence/Min-k%-Prob features, evaluated with 5-fold CV. Canonical metric is TPR@5%FPR, not AUC (AUC averages over FPR thresholds no real adversary would use). | A member/non-member split, white-box model access. |
 | `EZ_MIA`   | A lighter-weight MIA variant (arXiv:2601.12104) that compares a target and a reference model's confidence in "error-zone" tokens. Kept separate from `MIA` because the two attacks behave differently in practice (EZ-MIA tracks EM closely on full-loss checkpoints, near-chance on masked-loss; the Random Forest MIA doesn't). | A member/non-member split, white-box access to **both** a target and a reference model. |
 
-**Out of scope for this build:** PA-style attacks (undefined in the source research code this
-package was built from), and RAG-specific attacks.
 
 ## Install
 

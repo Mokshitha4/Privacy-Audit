@@ -79,7 +79,7 @@ def build_app():
 
     with gr.Blocks(title="privaudit") as app:
         gr.Markdown(
-            "# privaudit\n"
+            "# Privacy Audit\n"
             "Local privacy-leakage audit for fine-tuned clinical LLMs. Paste a job config, "
             "validate it, then run it. Everything runs on this machine and stays here -- "
             "nothing is uploaded anywhere by this UI."
