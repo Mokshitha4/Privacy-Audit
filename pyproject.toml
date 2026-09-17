@@ -15,12 +15,12 @@ dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
     "jsonschema>=4.17",
+    "sentencepiece>=0.1.99",
 ]
 
 [project.optional-dependencies]
 bertscore = ["bert-score>=0.3.13"]
-ui = ["gradio>=4.0"]
-dev = ["pytest>=7.4", "gradio>=4.0"]
+dev = ["pytest>=7.4"]
 
 [project.scripts]
 privaudit = "privaudit.cli:main"

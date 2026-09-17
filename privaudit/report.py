@@ -17,8 +17,13 @@ _MODEL_SCHEMA = {
     "type": "object",
     "required": ["source", "identifier", "access"],
     "properties": {
-        "source": {"enum": ["huggingface", "local_checkpoint", "api_endpoint"]},
-        "identifier": {"type": "string", "minLength": 1},
+        "source": {"enum": ["huggingface", "local_checkpoint", "api_endpoint", "openai"]},
+        "identifier": {
+            "type": "string",
+            "minLength": 1,
+            "description": "HF hub id, local checkpoint path, API endpoint URL, or (for source == 'openai') "
+                            "the OpenAI model name, e.g. 'gpt-4o-mini'.",
+        },
         "access": {"enum": ["white_box", "black_box"]},
         "base_model": {
             "type": "string",
@@ -26,6 +31,18 @@ _MODEL_SCHEMA = {
             "description": "HF hub id or local path for the base model. Only used when source == "
                             "'local_checkpoint' and 'identifier' is a LoRA/PEFT adapter directory; "
                             "overrides the base model recorded in the adapter's own adapter_config.json.",
+        },
+        "api_key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "source == 'openai' only. Falls back to the OPENAI_API_KEY environment "
+                            "variable when omitted -- prefer the env var over putting a key in a config file.",
+        },
+        "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "source == 'openai' only. Overrides the API base URL (default "
+                            "https://api.openai.com/v1) to point at an OpenAI-compatible endpoint instead.",
         },
         "finetuning": {
             "type": "object",
@@ -49,11 +66,21 @@ JOB_CONFIG_SCHEMA = {
         "reference_model": _MODEL_SCHEMA,  # required only by attacks that need it (e.g. EZ_MIA); checked per-attack
         "data": {
             "type": "object",
-            "required": ["role", "path"],
+            "required": ["role", "path", "schema"],
             "properties": {
                 "role": {"enum": ["member_nonmember_split", "rag_corpus"]},
-                "known_dataset": {"enum": ["MedQA", "ICD", "mortality", "readmission", "custom"]},
-                "schema": {"type": ["object", "null"]},
+                "schema": {
+                    "type": "object",
+                    "required": ["member_file", "nonmember_file"],
+                    "properties": {
+                        "format": {"enum": ["csv", "jsonl"]},
+                        "member_file": {"type": "string", "minLength": 1},
+                        "nonmember_file": {"type": "string", "minLength": 1},
+                        "text_field": {"type": "string", "minLength": 1},
+                        "text_template": {"type": "string", "minLength": 1},
+                    },
+                    "additionalProperties": False,
+                },
                 "path": {"type": "string", "minLength": 1},
             },
             "additionalProperties": False,

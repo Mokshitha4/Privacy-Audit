@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
-from .schema import resolve_schema
+from .schema import build_schema
 
 
 @dataclass
@@ -17,13 +17,13 @@ class MemberSplit:
 def load_member_split(data_cfg: dict) -> MemberSplit:
     """Load member (training) and non-member (held-out) texts per the job config's `data` block.
 
-    `data.path` is a local directory containing the member/non-member files named by the
-    resolved schema (e.g. train.csv/test.csv for MedQA, or data.schema's member_file/
-    nonmember_file for a custom dataset). Nothing under `data.path` is ever uploaded.
+    `data.path` is a local directory containing the member/non-member files named by
+    `data.schema`'s `member_file`/`nonmember_file`. Nothing under `data.path` is ever uploaded.
     """
-    known_dataset = data_cfg.get("known_dataset")
-    custom_schema_cfg = data_cfg.get("schema")
-    schema = resolve_schema(known_dataset, custom_schema_cfg)
+    schema_cfg = data_cfg.get("schema")
+    if not schema_cfg:
+        raise ValueError("data.schema is required (describes how to read your member/non-member files).")
+    schema = build_schema(schema_cfg)
 
     dataset_dir = Path(data_cfg["path"])
     if not dataset_dir.exists():

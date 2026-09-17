@@ -121,7 +121,6 @@ def _build_job_config(data_dir) -> dict:
         "reference_model": {"source": "huggingface", "identifier": "fake/reference-model", "access": "white_box"},
         "data": {
             "role": "member_nonmember_split",
-            "known_dataset": "custom",
             "schema": {"format": "csv", "member_file": "train.csv", "nonmember_file": "test.csv", "text_field": "note"},
             "path": str(data_dir),
         },
@@ -172,9 +171,81 @@ def test_run_job_respects_return_raw_generations_false(tmp_path, _mocked_model_l
     assert "raw_generations" not in report
 
 
+def test_run_job_reports_progress_through_each_stage(tmp_path, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    messages = []
+
+    runner.run_job(job_cfg, on_progress=messages.append)
+
+    joined = " ".join(messages)
+    assert any("model" in m.lower() for m in messages)
+    assert any("reference model" in m.lower() for m in messages)
+    assert any("dataset" in m.lower() for m in messages)
+    assert "Running EM" in joined and "Running MIA" in joined and "Running EZ_MIA" in joined
+    assert any("report" in m.lower() for m in messages)
+
+
+def test_run_job_on_progress_defaults_to_a_no_op(tmp_path, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]
+    runner.run_job(job_cfg)  # must not raise with no on_progress given
+
+
+def test_run_job_releases_model_weights_after_a_successful_run(tmp_path, monkeypatch):
+    """A long-lived caller (the UI server) runs many jobs in one process; without releasing
+    weights after each job, memory grows unbounded across runs. See runner._release()."""
+    loaded_instances = []
+
+    def _tracking_load_model(model_cfg):
+        instance = _FakeLoadedModel()
+        loaded_instances.append(instance)
+        return instance
+
+    monkeypatch.setattr(runner, "load_model", _tracking_load_model)
+    monkeypatch.setattr(em, "_bertscore_f1", lambda predictions, references: [0.5] * len(predictions))
+
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+
+    runner.run_job(job_cfg)
+
+    assert len(loaded_instances) == 2  # model + reference_model
+    for instance in loaded_instances:
+        assert instance.model is None
+        assert instance.tokenizer is None
+
+
+def test_run_job_releases_model_weights_even_when_an_attack_raises(tmp_path, monkeypatch):
+    loaded_instances = []
+
+    def _tracking_load_model(model_cfg):
+        instance = _FakeLoadedModel()
+        loaded_instances.append(instance)
+        return instance
+
+    monkeypatch.setattr(runner, "load_model", _tracking_load_model)
+
+    _write_split_csvs(tmp_path, n_members=1, n_nonmembers=1)  # too few for MIA's 5-fold CV -> raises
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][1]]  # MIA only
+
+    with pytest.raises(ValueError, match="5-fold"):
+        runner.run_job(job_cfg)
+
+    # Both model and reference_model are loaded unconditionally by run_job (before any attack
+    # runs), even though only MIA -- which doesn't use a reference model -- was requested here.
+    assert len(loaded_instances) == 2
+    assert all(instance.model is None for instance in loaded_instances)
+
+
 def test_run_job_rejects_rag_corpus_role(tmp_path, _mocked_model_loading):
     job_cfg = _build_job_config(tmp_path)
-    job_cfg["data"] = {"role": "rag_corpus", "path": str(tmp_path)}
+    job_cfg["data"] = {
+        "role": "rag_corpus", "path": str(tmp_path),
+        "schema": {"format": "csv", "member_file": "train.csv", "nonmember_file": "test.csv", "text_field": "note"},
+    }
     with pytest.raises(ValueError, match="not supported"):
         runner.run_job(job_cfg)
 
@@ -203,3 +274,126 @@ def test_cli_validate_end_to_end(tmp_path, capsys):
 
     cli.main(["validate", "--config", str(config_path)])
     assert "Config is valid." in capsys.readouterr().out
+
+
+def test_cli_run_prints_progress(tmp_path, capsys, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]  # EM only, keep it fast
+    config_path = tmp_path / "job.json"
+    output_path = tmp_path / "report.json"
+    config_path.write_text(json.dumps(job_cfg))
+
+    cli.main(["run", "--config", str(config_path), "--output", str(output_path)])
+
+    out = capsys.readouterr().out
+    assert "[privaudit]" in out
+    assert "Running EM" in out
+
+
+def test_cli_explain_prints_markdown_summary(tmp_path, capsys, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]  # EM only
+    report = runner.run_job(job_cfg)
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report))
+
+    cli.main(["explain", "--report", str(report_path)])
+
+    out = capsys.readouterr().out
+    assert "Exact Memorization" in out
+    assert "generated locally" in out
+
+
+def test_cli_explain_survives_a_non_utf8_console_encoding(tmp_path, monkeypatch, _mocked_model_loading):
+    """Regression test: explain's output includes emoji badges (see privaudit/explain.py's
+    _VERDICT_BADGE), which crash a plain print() on a Windows console defaulting to cp1252 --
+    reproduced here with a real cp1252-encoded stream standing in for that console, rather than
+    pytest's own (UTF-8-capable) capsys."""
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]  # EM only
+    report = runner.run_job(job_cfg)
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report))
+
+    import io
+    buffer = io.BytesIO()
+    fake_console = io.TextIOWrapper(buffer, encoding="cp1252")
+    monkeypatch.setattr("sys.stdout", fake_console)
+
+    cli.main(["explain", "--report", str(report_path)])  # must not raise UnicodeEncodeError
+
+    fake_console.flush()
+    assert b"Exact Memorization" in buffer.getvalue()
+
+
+def test_cli_explain_writes_to_output_file_when_given(tmp_path, capsys, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]
+    report = runner.run_job(job_cfg)
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report))
+    summary_path = tmp_path / "summary.md"
+
+    cli.main(["explain", "--report", str(report_path), "--output", str(summary_path)])
+
+    assert "Exact Memorization" in summary_path.read_text()
+    assert "written to" in capsys.readouterr().out
+
+
+def test_cli_explain_llm_requires_provider(tmp_path, capsys, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]
+    report = runner.run_job(job_cfg)
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report))
+
+    with pytest.raises(SystemExit):
+        cli.main(["explain", "--report", str(report_path), "--llm"])
+    assert "--provider" in capsys.readouterr().err
+
+
+def test_cli_explain_llm_appends_narration_on_success(tmp_path, capsys, monkeypatch, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]
+    report = runner.run_job(job_cfg)
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report))
+
+    from privaudit import llm_explain
+    monkeypatch.setattr(llm_explain, "explain_with_llm", lambda report, config: "A friendly narration.")
+
+    cli.main(["explain", "--report", str(report_path), "--llm", "--provider", "anthropic", "--api-key", "sk-test"])
+
+    out = capsys.readouterr().out
+    assert "Exact Memorization" in out  # rule-based summary still present
+    assert "AI narration (anthropic)" in out
+    assert "A friendly narration." in out
+
+
+def test_cli_explain_llm_failure_falls_back_to_rule_based_summary(tmp_path, capsys, monkeypatch, _mocked_model_loading):
+    _write_split_csvs(tmp_path)
+    job_cfg = _build_job_config(tmp_path)
+    job_cfg["attacks"] = [job_cfg["attacks"][0]]
+    report = runner.run_job(job_cfg)
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report))
+
+    from privaudit import llm_explain
+
+    def _boom(report, config):
+        raise RuntimeError("network unreachable")
+
+    monkeypatch.setattr(llm_explain, "explain_with_llm", _boom)
+
+    cli.main(["explain", "--report", str(report_path), "--llm", "--provider", "anthropic", "--api-key", "sk-test"])
+
+    captured = capsys.readouterr()
+    assert "Exact Memorization" in captured.out  # rule-based summary still shown
+    assert "network unreachable" in captured.err
+    assert "AI narration" not in captured.out

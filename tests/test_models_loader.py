@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from privaudit.models.loader import _try_load_peft_config, load_model
+from privaudit.models.loader import ModelConfig, _try_load_peft_config, load_model
 
 
 def _write_adapter_config(directory, base_model_name_or_path=None):
@@ -66,3 +66,87 @@ def test_load_model_raises_on_unknown_source():
 def test_load_model_api_endpoint_requires_black_box_access():
     with pytest.raises(ValueError, match="black_box"):
         load_model({"source": "api_endpoint", "identifier": "https://example.com/generate", "access": "white_box"})
+
+
+# ---------------------------------------------------------------------------
+# OpenAI source
+# ---------------------------------------------------------------------------
+
+def test_load_model_openai_requires_black_box_access():
+    with pytest.raises(ValueError, match="black_box"):
+        load_model({"source": "openai", "identifier": "gpt-4o-mini", "access": "white_box", "api_key": "sk-test"})
+
+
+def test_load_model_openai_requires_an_api_key_when_env_var_unset(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        load_model({"source": "openai", "identifier": "gpt-4o-mini", "access": "black_box"})
+
+
+def test_load_model_openai_succeeds_with_explicit_api_key():
+    loaded = load_model({"source": "openai", "identifier": "gpt-4o-mini", "access": "black_box", "api_key": "sk-test"})
+    assert loaded.cfg.api_key == "sk-test"
+    assert not loaded.is_white_box
+
+
+def test_load_model_openai_falls_back_to_env_var(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+    loaded = load_model({"source": "openai", "identifier": "gpt-4o-mini", "access": "black_box"})
+    assert loaded.cfg.api_key == "sk-from-env"
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return json.dumps(self._payload).encode("utf-8")
+
+
+def test_openai_generate_posts_chat_completions_and_parses_response(monkeypatch):
+    from privaudit.models.loader import LoadedModel
+
+    captured = {}
+
+    def _fake_urlopen(req):
+        captured["url"] = req.full_url
+        captured["headers"] = {k.lower(): v for k, v in req.headers.items()}
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse({"choices": [{"message": {"content": "hello back"}}]})
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    cfg = ModelConfig(source="openai", identifier="gpt-4o-mini", access="black_box", api_key="sk-test")
+    result = LoadedModel(cfg).generate_greedy("Hello", max_new_tokens=50)
+
+    assert result == "hello back"
+    assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+    assert captured["headers"]["authorization"] == "Bearer sk-test"
+    assert captured["body"]["model"] == "gpt-4o-mini"
+    assert captured["body"]["messages"] == [{"role": "user", "content": "Hello"}]
+    assert captured["body"]["max_tokens"] == 50
+
+
+def test_openai_generate_respects_custom_base_url(monkeypatch):
+    from privaudit.models.loader import LoadedModel
+
+    captured = {}
+
+    def _fake_urlopen(req):
+        captured["url"] = req.full_url
+        return _FakeHTTPResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    cfg = ModelConfig(
+        source="openai", identifier="my-model", access="black_box", api_key="sk-test",
+        base_url="https://my-proxy.example.com/v1/",
+    )
+    LoadedModel(cfg).generate_greedy("hi", max_new_tokens=10)
+    assert captured["url"] == "https://my-proxy.example.com/v1/chat/completions"

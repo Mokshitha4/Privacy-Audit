@@ -6,6 +6,7 @@ attacks/em.py, attacks/mia.py, attacks/ez_mia.py agnostic to where the model act
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -16,11 +17,13 @@ import torch
 
 @dataclass
 class ModelConfig:
-    source: str  # "huggingface" | "local_checkpoint" | "api_endpoint"
+    source: str  # "huggingface" | "local_checkpoint" | "api_endpoint" | "openai"
     identifier: str
     access: str  # "white_box" | "black_box"
     finetuning: Optional[dict] = None
     base_model: Optional[str] = None  # local_checkpoint + LoRA/PEFT adapter only; see load_model()
+    api_key: Optional[str] = None  # source == "openai" only
+    base_url: Optional[str] = None  # source == "openai" only; overrides the default OpenAI API base URL
 
     @classmethod
     def from_job_config(cls, model_cfg: dict) -> "ModelConfig":
@@ -30,6 +33,8 @@ class ModelConfig:
             access=model_cfg.get("access", "white_box"),
             finetuning=model_cfg.get("finetuning"),
             base_model=model_cfg.get("base_model"),
+            api_key=model_cfg.get("api_key"),
+            base_url=model_cfg.get("base_url"),
         )
 
 
@@ -65,6 +70,8 @@ class LoadedModel:
                 )
             gen_ids = output_ids[0][inputs["input_ids"].shape[1]:].tolist()
             return self.tokenizer.decode(gen_ids, skip_special_tokens=True)
+        if self.cfg.source == "openai":
+            return self._openai_generate(prompt, max_new_tokens)
         return self._api_generate(prompt, max_new_tokens)
 
     def _api_generate(self, prompt: str, max_new_tokens: int) -> str:
@@ -84,6 +91,37 @@ class LoadedModel:
         if "text" not in body:
             raise ValueError(f"API endpoint response missing 'text' field: {body}")
         return body["text"]
+
+    def _openai_generate(self, prompt: str, max_new_tokens: int) -> str:
+        """Chat Completions call. No `openai` package dependency -- a plain HTTPS POST, same
+        as `_api_generate`, since that's all EM's generation needs."""
+        import urllib.error
+        import urllib.request
+
+        base_url = (self.cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+        payload = json.dumps({
+            "model": self.cfg.identifier,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_new_tokens,
+            "temperature": 0,
+            "top_p": 1,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base_url}/chat/completions",
+            data=payload,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.cfg.api_key}"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")
+            raise ValueError(f"OpenAI API request failed ({e.code}): {detail}") from e
+        try:
+            return body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError) as e:
+            raise ValueError(f"Unexpected OpenAI API response: {body}") from e
 
     def sequence_stats(self, texts: List[str], batch_size: int = 8, max_length: int = 512, k_percent: int = 20) -> dict:
         """Per-sequence loss, perplexity, mean ground-truth-token confidence, and Min-k%-Prob.
@@ -164,6 +202,17 @@ def load_model(model_cfg: dict) -> LoadedModel:
     if cfg.source == "api_endpoint":
         if cfg.access != "black_box":
             raise ValueError("model.source == 'api_endpoint' must use access == 'black_box'.")
+        return LoadedModel(cfg)
+
+    if cfg.source == "openai":
+        if cfg.access != "black_box":
+            raise ValueError("model.source == 'openai' must use access == 'black_box'.")
+        cfg.api_key = cfg.api_key or os.environ.get("OPENAI_API_KEY")
+        if not cfg.api_key:
+            raise ValueError(
+                "model.source == 'openai' requires an API key: set model.api_key in the job config, "
+                "or the OPENAI_API_KEY environment variable."
+            )
         return LoadedModel(cfg)
 
     if cfg.source not in ("huggingface", "local_checkpoint"):

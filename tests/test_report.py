@@ -7,7 +7,10 @@ from privaudit.report import build_report, validate_report
 def test_build_report_shape_and_canonical_scores():
     job_cfg = {
         "model": {"source": "huggingface", "identifier": "gpt2", "access": "white_box"},
-        "data": {"role": "member_nonmember_split", "known_dataset": "MedQA", "path": "/data"},
+        "data": {
+            "role": "member_nonmember_split", "path": "/data",
+            "schema": {"format": "csv", "member_file": "train.csv", "nonmember_file": "test.csv", "text_field": "note"},
+        },
         "attacks": [{"family": "EM", "variant": "default"}, {"family": "MIA", "variant": "default"}],
     }
     outputs = [
@@ -27,7 +30,10 @@ def test_build_report_shape_and_canonical_scores():
 def test_build_report_includes_raw_generations_only_when_present():
     job_cfg = {
         "model": {"source": "huggingface", "identifier": "gpt2", "access": "white_box"},
-        "data": {"role": "member_nonmember_split", "path": "/data", "known_dataset": "custom", "schema": {}},
+        "data": {
+            "role": "member_nonmember_split", "path": "/data",
+            "schema": {"format": "csv", "member_file": "train.csv", "nonmember_file": "test.csv", "text_field": "note"},
+        },
         "attacks": [{"family": "EM", "variant": "default"}],
     }
     outputs = [

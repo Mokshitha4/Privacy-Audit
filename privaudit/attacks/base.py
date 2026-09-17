@@ -3,10 +3,10 @@
 Each attack module (em.py, mia.py, ez_mia.py) exposes:
 
     FAMILY: str
-    validate(data_cfg: dict, model_cfg: dict, attack_cfg: dict) -> None
+    validate(job_cfg: dict, attack_cfg: dict) -> None
         Raise ValueError with a clear message if required inputs are missing
-        (e.g. PA-style attacks would require a known_dataset/custom schema;
-        EM does not).
+        (e.g. a PA-style attack would require a data.schema with specific fields;
+        EM does not require anything beyond the member split).
     run(model, member_split, attack_cfg, output_cfg, reference_model=None) -> AttackOutput
 
 `run` never writes anything to disk or the network itself -- it returns an
