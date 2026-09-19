@@ -103,7 +103,7 @@ _FORM_DEFAULTS = {
     "model_source": "huggingface", "model_identifier": "gpt2", "model_access": "white_box",
     "model_base_model": "", "model_api_key": "", "model_base_url": "",
     "ft_enabled": False, "ft_regime": "full_ft", "ft_loss": "full", "ft_epsilon": "",
-    "use_reference": False, "ref_source": "huggingface", "ref_identifier": "", "ref_access": "white_box",
+    "ref_source": "huggingface", "ref_identifier": "", "ref_access": "white_box",
     "ref_base_model": "", "ref_api_key": "", "ref_base_url": "",
     "data_role": "member_nonmember_split", "data_path": "/data",
     "schema_format": "csv", "schema_member_file": "train.csv", "schema_nonmember_file": "test.csv",
@@ -162,14 +162,19 @@ def test_text_template_takes_precedence_over_text_field():
     assert "text_field" not in config["data"]["schema"]
 
 
-def test_reference_model_block_added_when_enabled():
+def test_reference_model_block_added_when_ezmia_enabled():
     config = _config_from_form(
-        use_reference=True, ref_source="local_checkpoint", ref_identifier="/ckpt", ref_base_model="Qwen/Qwen3-0.6B",
-        ezmia_enabled=True,
+        ezmia_enabled=True, ref_source="local_checkpoint", ref_identifier="/ckpt", ref_base_model="Qwen/Qwen3-0.6B",
     )
     assert config["reference_model"] == {
         "source": "local_checkpoint", "identifier": "/ckpt", "access": "white_box", "base_model": "Qwen/Qwen3-0.6B"
     }
+
+
+def test_reference_model_block_absent_when_ezmia_disabled():
+    # MIA doesn't need a reference model; enabling it alone must not add one.
+    config = _config_from_form(mia_enabled=True, ref_identifier="gpt2")
+    assert "reference_model" not in config
 
 
 def test_openai_model_block_includes_api_key_and_base_url():
@@ -197,7 +202,7 @@ def test_api_key_and_base_url_ignored_for_non_openai_sources():
 
 def test_reference_openai_block_includes_api_key():
     config = _config_from_form(
-        use_reference=True, ref_source="openai", ref_identifier="gpt-4o-mini", ref_access="black_box",
+        ezmia_enabled=True, ref_source="openai", ref_identifier="gpt-4o-mini", ref_access="black_box",
         ref_api_key="sk-ref",
     )
     assert config["reference_model"]["api_key"] == "sk-ref"
@@ -209,7 +214,7 @@ def test_finetuning_block_added_only_when_recorded():
 
 
 def test_all_three_attacks_can_be_enabled_together():
-    config = _config_from_form(mia_enabled=True, ezmia_enabled=True, use_reference=True, ref_identifier="gpt2")
+    config = _config_from_form(mia_enabled=True, ezmia_enabled=True, ref_identifier="gpt2")
     assert [a["family"] for a in config["attacks"]] == ["EM", "MIA", "EZ_MIA"]
 
 

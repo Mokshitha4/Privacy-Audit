@@ -76,15 +76,15 @@ _FIELD_ORDER = [
     "model_source", "model_identifier", "model_access", "model_base_model",
     "model_api_key", "model_base_url",
     "ft_enabled", "ft_regime", "ft_loss", "ft_epsilon",
-    "use_reference", "ref_source", "ref_identifier", "ref_access", "ref_base_model",
-    "ref_api_key", "ref_base_url",
     "data_role", "data_path",
     "schema_format", "schema_member_file", "schema_nonmember_file", "schema_text_field", "schema_text_template",
     "em_enabled", "em_prefix_len", "em_continuation_len", "em_max_samples", "em_ngram_ns",
     "mia_enabled", "mia_num_members", "mia_num_nonmembers", "mia_max_length", "mia_k_percent",
     "mia_n_folds", "mia_batch_size", "mia_seed",
-    "ezmia_enabled", "ezmia_num_members", "ezmia_num_nonmembers", "ezmia_sequence_length",
-    "ezmia_batch_size", "ezmia_seed",
+    # EZ_MIA's reference model lives here, not as a separate top-level section -- it's the only
+    # attack that ever needs one, so enabling EZ_MIA is what turns it on (see _assemble_config).
+    "ezmia_enabled", "ref_source", "ref_identifier", "ref_access", "ref_base_model", "ref_api_key", "ref_base_url",
+    "ezmia_num_members", "ezmia_num_nonmembers", "ezmia_sequence_length", "ezmia_batch_size", "ezmia_seed",
     "return_raw_generations",
 ]
 
@@ -160,7 +160,7 @@ def _assemble_config(f: dict) -> dict:
 
     config: dict = {"model": model}
 
-    if f.get("use_reference"):
+    if f.get("ezmia_enabled"):
         config["reference_model"] = _model_block(
             f["ref_source"], f["ref_identifier"], f["ref_access"],
             f.get("ref_base_model"), f.get("ref_api_key"), f.get("ref_base_url"),
@@ -374,22 +374,7 @@ def build_app():
                         c["ft_loss"] = gr.Dropdown(["full", "masked"], value="full", label="loss")
                         c["ft_epsilon"] = gr.Textbox(value="", label="epsilon", placeholder="DP-SGD budget; blank otherwise")
 
-                with gr.Accordion("2. Reference model (required for EZ-MIA)", open=False):
-                    c["use_reference"] = gr.Checkbox(value=False, label="Use a reference model")
-                    with gr.Group(visible=False) as ref_group:
-                        c["ref_source"] = gr.Dropdown(model_sources, value="huggingface", label="source")
-                        c["ref_identifier"] = gr.Textbox(label="identifier", placeholder="HF hub id or local path")
-                        c["ref_access"] = gr.Dropdown(["white_box", "black_box"], value="white_box", label="access")
-                        with gr.Group(visible=True) as ref_base_model_group:
-                            c["ref_base_model"] = gr.Textbox(label="base_model (optional)")
-                        with gr.Group(visible=False) as ref_openai_group:
-                            c["ref_api_key"] = gr.Textbox(
-                                label="api_key", type="password",
-                                placeholder="sk-... (blank = use the OPENAI_API_KEY environment variable)",
-                            )
-                            c["ref_base_url"] = gr.Textbox(label="base_url (optional)", placeholder="https://api.openai.com/v1")
-
-                with gr.Accordion("3. Data", open=True):
+                with gr.Accordion("2. Data", open=True):
                     c["data_role"] = gr.Dropdown(
                         ["member_nonmember_split", "rag_corpus"], value="member_nonmember_split", label="role"
                     )
@@ -412,7 +397,7 @@ def build_app():
                         info="Overrides text_field; Python str.format against each row (supports nested [idx][key]).",
                     )
 
-                with gr.Accordion("4. Attacks", open=True):
+                with gr.Accordion("3. Attacks", open=True):
                     c["em_enabled"] = gr.Checkbox(value=True, label="EM: Exact Memorization")
                     with gr.Group(visible=True) as em_group:
                         c["em_prefix_len"] = gr.Number(value=50, precision=0, label="prefix_len")
@@ -445,6 +430,19 @@ def build_app():
                         value=False, label="EZ_MIA: lightweight MIA (needs a reference model)"
                     )
                     with gr.Group(visible=False) as ezmia_group:
+                        gr.Markdown("**Reference model** -- compared against the model above; only used by EZ_MIA")
+                        c["ref_source"] = gr.Dropdown(model_sources, value="huggingface", label="source")
+                        c["ref_identifier"] = gr.Textbox(label="identifier", placeholder="HF hub id or local path")
+                        c["ref_access"] = gr.Dropdown(["white_box", "black_box"], value="white_box", label="access")
+                        with gr.Group(visible=True) as ref_base_model_group:
+                            c["ref_base_model"] = gr.Textbox(label="base_model (optional)")
+                        with gr.Group(visible=False) as ref_openai_group:
+                            c["ref_api_key"] = gr.Textbox(
+                                label="api_key", type="password",
+                                placeholder="sk-... (blank = use the OPENAI_API_KEY environment variable)",
+                            )
+                            c["ref_base_url"] = gr.Textbox(label="base_url (optional)", placeholder="https://api.openai.com/v1")
+                        gr.Markdown("**EZ_MIA parameters**")
                         c["ezmia_num_members"] = gr.Textbox(
                             value="", label="num_members", placeholder="all", info="blank = all available"
                         )
@@ -455,13 +453,13 @@ def build_app():
                         c["ezmia_batch_size"] = gr.Number(value=8, precision=0, label="batch_size")
                         c["ezmia_seed"] = gr.Number(value=42, precision=0, label="seed")
 
-                with gr.Accordion("5. Output", open=True):
+                with gr.Accordion("4. Output", open=True):
                     c["return_raw_generations"] = gr.Checkbox(
                         value=False, label="return_raw_generations",
                         info="Include raw model generations in the report (off by default).",
                     )
 
-                with gr.Accordion("6. AI narration (optional)", open=False):
+                with gr.Accordion("5. AI narration (optional)", open=False):
                     c["llm_enabled"] = gr.Checkbox(
                         value=False, label="Narrate the results with an LLM",
                         info="Sends only the rule-based summary below -- verdicts and rounded scores, "
@@ -501,7 +499,6 @@ def build_app():
         c["ref_source"].change(_base_model_visible, c["ref_source"], ref_base_model_group)
         c["ref_source"].change(_openai_visible, c["ref_source"], ref_openai_group)
         c["ft_enabled"].change(_visible, c["ft_enabled"], ft_group)
-        c["use_reference"].change(_visible, c["use_reference"], ref_group)
         c["em_enabled"].change(_visible, c["em_enabled"], em_group)
         c["mia_enabled"].change(_visible, c["mia_enabled"], mia_group)
         c["ezmia_enabled"].change(_visible, c["ezmia_enabled"], ezmia_group)

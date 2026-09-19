@@ -54,9 +54,10 @@ A local Gradio page wrapping the exact same JSON-in/JSON-out contract as the CLI
 **form**, not a raw JSON box: dropdowns for the enum fields (`source`, `access`, `role`,
 `format`, …), text inputs for the strings, and every attack parameter shown pre-filled with its
 default (`prefix_len` 50, `continuation_len` 500, MIA `n_folds` 5, …) so you edit only what you
-need. The reference-model fields appear only when you tick "Use a reference model"; the
-`api_key`/`base_url` fields appear only when `source` is `openai`; each attack's parameters
-only when that attack is enabled.
+need. Each attack's parameters appear only when that attack is enabled; the `api_key`/`base_url`
+fields appear only when `source` is `openai`. The reference-model fields live inside the EZ_MIA
+section (not a separate step) and appear only when EZ_MIA is enabled, since it's the only attack
+that ever needs one.
 
 - **Preview config** shows the assembled JSON (copy it straight into `privaudit run --config`).
 - **Validate** runs the same schema check as `privaudit validate`.
