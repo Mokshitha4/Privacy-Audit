@@ -91,7 +91,7 @@ _FIELD_ORDER = [
 # Separate from _FIELD_ORDER: these describe an optional post-processing step (narrate the
 # already-computed rule-based summary with an LLM), not anything in the job config itself, so
 # they're never passed through _assemble_config()/validate_job_config().
-_LLM_FIELD_ORDER = ["llm_enabled", "llm_provider", "llm_api_key", "llm_model"]
+_LLM_FIELD_ORDER = ["llm_enabled", "llm_provider", "llm_api_key", "llm_model", "llm_base_url"]
 
 
 def _num(value):
@@ -292,6 +292,7 @@ def _run_form_streaming(*values):
                 provider=llm_fields["llm_provider"],
                 api_key=(llm_fields.get("llm_api_key") or "").strip() or None,
                 model=(llm_fields.get("llm_model") or "").strip() or None,
+                base_url=(llm_fields.get("llm_base_url") or "").strip() or None,
             ))
             summary_markdown = f"{summary_markdown}\n\n---\n### 🤖 AI narration ({llm_fields['llm_provider']})\n\n{llm_text}"
         except Exception as e:
@@ -466,14 +467,21 @@ def build_app():
                              "never raw text or raw_generations -- to the provider you choose. Off by default.",
                     )
                     with gr.Group(visible=False) as llm_group:
-                        c["llm_provider"] = gr.Dropdown(["anthropic", "openai"], value="anthropic", label="provider")
+                        c["llm_provider"] = gr.Dropdown(
+                            ["anthropic", "openai", "huggingface", "openrouter"], value="anthropic", label="provider"
+                        )
                         c["llm_api_key"] = gr.Textbox(
                             label="api_key", type="password",
-                            placeholder="blank = use ANTHROPIC_API_KEY / OPENAI_API_KEY environment variable",
+                            placeholder="blank = use ANTHROPIC_API_KEY / OPENAI_API_KEY / HF_TOKEN / OPENROUTER_API_KEY",
                         )
                         c["llm_model"] = gr.Textbox(
                             label="model (optional)",
-                            placeholder="blank = provider's small/fast default (e.g. claude-sonnet-5, gpt-4o-mini)",
+                            placeholder="blank = provider's default (e.g. claude-sonnet-5, gpt-4o-mini, openai/gpt-4o-mini)",
+                        )
+                        c["llm_base_url"] = gr.Textbox(
+                            label="base_url (optional)",
+                            placeholder="blank = provider's default endpoint",
+                            info="Override for a self-hosted or proxy endpoint (Hugging Face's router / OpenRouter / OpenAI-compatible).",
                         )
 
                 with gr.Row():

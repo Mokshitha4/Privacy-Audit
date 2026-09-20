@@ -3,11 +3,18 @@
 Opt-in only, and additive: this never replaces `explain.render_markdown()`'s rule-based
 summary, it narrates it in friendlier prose on top. The only thing sent anywhere is the output
 of `explain.summarize()` -- verdict labels, rounded metric values, and template sentences --
-never `raw_generations`, never the raw report, never your data. Requires your own API key
-(Anthropic or an OpenAI-compatible endpoint); this package holds no key of its own and makes no
-network call unless you explicitly ask for one.
+never `raw_generations`, never the raw report, never your data. Requires your own API key for
+whichever provider you pick; this package holds no key of its own and makes no network call
+unless you explicitly ask for one.
 
-No SDK dependency: both providers are called directly over HTTPS with `urllib`, the same
+Four providers, three code paths:
+    - "anthropic": Anthropic's Messages API (its own request/response shape).
+    - "openai", "huggingface", "openrouter": all three speak the same OpenAI-compatible chat
+      completions format (Hugging Face via its newer https://router.huggingface.co router;
+      OpenRouter proxies many providers behind one such endpoint) -- one shared caller handles
+      all three, differing only in default base URL, default model, and API-key env var.
+
+No SDK dependency: every provider is called directly over HTTPS with `urllib`, the same
 minimal-dependency approach `models/loader.py` uses for its `openai` model source.
 """
 from __future__ import annotations
@@ -35,17 +42,29 @@ _SYSTEM_PROMPT = (
 _DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-5",
     "openai": "gpt-4o-mini",
+    "huggingface": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "openrouter": "openai/gpt-4o-mini",
+}
+
+_DEFAULT_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "huggingface": "https://router.huggingface.co/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
 }
 
 _ENV_VAR = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "huggingface": "HF_TOKEN",
+    "openrouter": "OPENROUTER_API_KEY",
 }
+
+_OPENAI_COMPATIBLE_PROVIDERS = {"openai", "huggingface", "openrouter"}
 
 
 @dataclass
 class LLMExplainConfig:
-    provider: str  # "anthropic" | "openai"
+    provider: str  # "anthropic" | "openai" | "huggingface" | "openrouter"
     api_key: Optional[str] = None
     model: Optional[str] = None
     base_url: Optional[str] = None
@@ -72,8 +91,10 @@ def _call_anthropic(api_key: str, model: str, payload_text: str, base_url: Optio
         raise RuntimeError(f"Unexpected Anthropic API response shape: {result}") from e
 
 
-def _call_openai(api_key: str, model: str, payload_text: str, base_url: Optional[str] = None) -> str:
-    base = (base_url or "https://api.openai.com/v1").rstrip("/")
+def _call_openai_compatible(api_key: str, model: str, payload_text: str, base_url: str) -> str:
+    """Shared caller for every provider speaking the OpenAI chat-completions format: OpenAI
+    itself, Hugging Face's router, and OpenRouter. `base_url` is required here (the provider's
+    default, or the user's override) -- callers resolve it before invoking this."""
     body = json.dumps({
         "model": model,
         "messages": [
@@ -84,7 +105,7 @@ def _call_openai(api_key: str, model: str, payload_text: str, base_url: Optional
         "temperature": 0.3,
     }).encode("utf-8")
     req = urllib.request.Request(
-        f"{base}/chat/completions", data=body,
+        f"{base_url.rstrip('/')}/chat/completions", data=body,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
@@ -93,10 +114,7 @@ def _call_openai(api_key: str, model: str, payload_text: str, base_url: Optional
     try:
         return result["choices"][0]["message"]["content"].strip()
     except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"Unexpected OpenAI API response shape: {result}") from e
-
-
-_CALLERS = {"anthropic": _call_anthropic, "openai": _call_openai}
+        raise RuntimeError(f"Unexpected chat-completions API response shape: {result}") from e
 
 
 def explain_with_llm(report: dict, config: LLMExplainConfig) -> str:
@@ -104,8 +122,8 @@ def explain_with_llm(report: dict, config: LLMExplainConfig) -> str:
     key/unknown provider, or whatever the underlying HTTP call raises on failure -- callers
     should catch broadly and fall back to `explain.render_markdown()` alone, since this step is
     additive and optional by design."""
-    if config.provider not in _CALLERS:
-        raise ValueError(f"Unknown LLM provider {config.provider!r}; expected one of {sorted(_CALLERS)}.")
+    if config.provider not in _ENV_VAR:
+        raise ValueError(f"Unknown LLM provider {config.provider!r}; expected one of {sorted(_ENV_VAR)}.")
 
     api_key = config.api_key or os.environ.get(_ENV_VAR[config.provider])
     if not api_key:
@@ -116,4 +134,8 @@ def explain_with_llm(report: dict, config: LLMExplainConfig) -> str:
 
     model = config.model or _DEFAULT_MODELS[config.provider]
     payload_text = json.dumps(summarize(report))  # never includes raw_generations; see explain.py
-    return _CALLERS[config.provider](api_key, model, payload_text, config.base_url)
+
+    if config.provider == "anthropic":
+        return _call_anthropic(api_key, model, payload_text, config.base_url)
+    base_url = config.base_url or _DEFAULT_BASE_URLS[config.provider]
+    return _call_openai_compatible(api_key, model, payload_text, base_url)

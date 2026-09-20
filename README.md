@@ -106,17 +106,28 @@ default**, additive (it's appended after the rule-based summary, never replaces 
 
 - sends **only** the rule-based summary above — verdict labels and rounded scores — **never**
   `raw_generations`, never the raw report, never anything else on your machine;
-- needs **your own API key** for Anthropic or OpenAI, the same bring-your-own-key model the
-  `openai` model source already uses — `privaudit` holds no key of its own;
+- needs **your own API key** for whichever provider you pick, the same bring-your-own-key model
+  the `openai` model source already uses — `privaudit` holds no key of its own;
 - falls back cleanly to the rule-based summary alone if the call fails for any reason.
+
+Four providers, picked with `--provider`: `anthropic`, `openai`, `huggingface` (via its
+[Inference Providers router](https://huggingface.co/docs/inference-providers), an OpenAI-compatible
+endpoint that can reach many hosted open models with one API key), and `openrouter` (a proxy in
+front of many providers' models, also OpenAI-compatible). Each falls back to its own environment
+variable when `--api-key` is omitted: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `HF_TOKEN`,
+`OPENROUTER_API_KEY`.
 
 ```bash
 privaudit explain --report report.json --llm --provider anthropic --api-key sk-ant-...
-# or set ANTHROPIC_API_KEY / OPENAI_API_KEY and omit --api-key
+# or set ANTHROPIC_API_KEY / OPENAI_API_KEY / HF_TOKEN / OPENROUTER_API_KEY and omit --api-key
 privaudit explain --report report.json --llm --provider openai --llm-model gpt-4o-mini
+privaudit explain --report report.json --llm --provider huggingface --llm-model meta-llama/Meta-Llama-3-8B-Instruct
+privaudit explain --report report.json --llm --provider openrouter --llm-model anthropic/claude-3.5-sonnet
 ```
 
-In the UI, the same toggle lives under "6. AI narration (optional)".
+`--llm-base-url` overrides the provider's default endpoint (a self-hosted router, a proxy, …).
+
+In the UI, the same toggle lives under "5. AI narration (optional)".
 
 ## Job config
 

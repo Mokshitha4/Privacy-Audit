@@ -50,10 +50,16 @@ def main(argv=None) -> None:
         help="Also narrate the summary with an LLM (opt-in; sends only the rule-based summary above -- "
              "verdicts and rounded scores, never raw data -- to the provider you choose). Requires --provider.",
     )
-    explain_parser.add_argument("--provider", choices=["anthropic", "openai"], help="LLM provider for --llm.")
+    explain_parser.add_argument(
+        "--provider", choices=["anthropic", "openai", "huggingface", "openrouter"], help="LLM provider for --llm."
+    )
     explain_parser.add_argument("--llm-model", help="Model name for --llm (default: the provider's small/fast model).")
     explain_parser.add_argument(
-        "--api-key", help="API key for --llm (default: read from ANTHROPIC_API_KEY / OPENAI_API_KEY)."
+        "--api-key",
+        help="API key for --llm (default: read from ANTHROPIC_API_KEY / OPENAI_API_KEY / HF_TOKEN / OPENROUTER_API_KEY).",
+    )
+    explain_parser.add_argument(
+        "--llm-base-url", help="Override the provider's API base URL for --llm (e.g. a self-hosted or proxy endpoint)."
     )
 
     ui_parser = subparsers.add_parser("ui", help="Launch a local Gradio UI (requires the 'ui' extra: pip install -e '.[ui]').")
@@ -85,12 +91,14 @@ def main(argv=None) -> None:
         text = render_markdown(summarize(report))
         if args.llm:
             if not args.provider:
-                print("Error: --llm requires --provider {anthropic,openai}.", file=sys.stderr)
+                print("Error: --llm requires --provider {anthropic,openai,huggingface,openrouter}.", file=sys.stderr)
                 sys.exit(1)
             from .llm_explain import LLMExplainConfig, explain_with_llm
             try:
                 llm_text = explain_with_llm(
-                    report, LLMExplainConfig(provider=args.provider, api_key=args.api_key, model=args.llm_model)
+                    report, LLMExplainConfig(
+                        provider=args.provider, api_key=args.api_key, model=args.llm_model, base_url=args.llm_base_url
+                    )
                 )
                 text = f"{text}\n\n---\n## AI narration ({args.provider})\n\n{llm_text}"
             except Exception as e:

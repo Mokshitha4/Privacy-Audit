@@ -135,6 +135,78 @@ def test_base_url_override_is_used_for_openai_compatible_endpoints(monkeypatch):
     assert captured["url"] == "https://my-proxy.example.com/v1/chat/completions"
 
 
+@pytest.mark.parametrize(
+    ("provider", "env_var", "default_base_url", "default_model"),
+    [
+        ("huggingface", "HF_TOKEN", "https://router.huggingface.co/v1", "meta-llama/Meta-Llama-3-8B-Instruct"),
+        ("openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
+    ],
+)
+def test_huggingface_and_openrouter_use_the_shared_openai_compatible_caller(
+    monkeypatch, provider, env_var, default_base_url, default_model
+):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["headers"] = {k.lower(): v for k, v in req.header_items()}
+        captured["body"] = json.loads(req.data)
+        return _FakeResponse({"choices": [{"message": {"content": "Looks fine."}}]})
+
+    monkeypatch.setattr(llm_explain.urllib.request, "urlopen", fake_urlopen)
+
+    text = explain_with_llm(
+        _report({"EM": {"mem_at_50": 0.0}}),
+        LLMExplainConfig(provider=provider, api_key="test-key"),
+    )
+
+    assert text == "Looks fine."
+    assert captured["url"] == f"{default_base_url}/chat/completions"
+    assert captured["headers"]["authorization"] == "Bearer test-key"
+    assert captured["body"]["model"] == default_model
+
+
+def test_huggingface_falls_back_to_hf_token_env_var(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["headers"] = dict(req.header_items())
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setenv("HF_TOKEN", "hf_from_env")
+    monkeypatch.setattr(llm_explain.urllib.request, "urlopen", fake_urlopen)
+
+    explain_with_llm(_report({"EM": {"mem_at_50": 0.0}}), LLMExplainConfig(provider="huggingface"))
+    assert captured["headers"]["Authorization"] == "Bearer hf_from_env"
+
+
+def test_openrouter_requires_openrouter_api_key(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        explain_with_llm(_report({"EM": {"mem_at_50": 0.0}}), LLMExplainConfig(provider="openrouter"))
+
+
+def test_huggingface_and_openrouter_respect_a_custom_model_and_base_url(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["body"] = json.loads(req.data)
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(llm_explain.urllib.request, "urlopen", fake_urlopen)
+
+    explain_with_llm(
+        _report({"EM": {"mem_at_50": 0.0}}),
+        LLMExplainConfig(
+            provider="openrouter", api_key="test-key", model="meta-llama/llama-3.1-8b-instruct",
+            base_url="https://my-openrouter-proxy.example.com/v1",
+        ),
+    )
+    assert captured["url"] == "https://my-openrouter-proxy.example.com/v1/chat/completions"
+    assert captured["body"]["model"] == "meta-llama/llama-3.1-8b-instruct"
+
+
 def test_explain_with_llm_never_touches_raw_generations(monkeypatch):
     monkeypatch.setattr(
         llm_explain.urllib.request, "urlopen",

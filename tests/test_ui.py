@@ -246,7 +246,9 @@ def test_validate_form_returns_status_and_the_assembled_json():
 # Streaming Run: live progress + plain-language summary
 # ---------------------------------------------------------------------------
 
-_LLM_FORM_DEFAULTS = {"llm_enabled": False, "llm_provider": "anthropic", "llm_api_key": "", "llm_model": ""}
+_LLM_FORM_DEFAULTS = {
+    "llm_enabled": False, "llm_provider": "anthropic", "llm_api_key": "", "llm_model": "", "llm_base_url": "",
+}
 
 
 def _drain(generator):
@@ -371,6 +373,22 @@ def test_llm_narration_blank_api_key_and_model_become_none(monkeypatch):
 
     assert captured["config"].api_key is None
     assert captured["config"].model is None
+    assert captured["config"].base_url is None
+
+
+def test_llm_narration_supports_huggingface_and_openrouter_providers(monkeypatch):
+    monkeypatch.setattr(ui, "run_job", _fake_run_job_em_only)
+    captured = {}
+    monkeypatch.setattr(ui, "explain_with_llm", lambda report, config: captured.setdefault("config", config) or "ok")
+
+    _drain(ui._run_form_streaming(*_all_fields(
+        llm_enabled=True, llm_provider="huggingface", llm_api_key="hf_test",
+        llm_base_url="https://my-router.example.com/v1",
+    )))
+
+    assert captured["config"].provider == "huggingface"
+    assert captured["config"].api_key == "hf_test"
+    assert captured["config"].base_url == "https://my-router.example.com/v1"
 
 
 def test_llm_narration_failure_falls_back_to_rule_based_summary(monkeypatch):
