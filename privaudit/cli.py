@@ -62,12 +62,29 @@ def main(argv=None) -> None:
         "--llm-base-url", help="Override the provider's API base URL for --llm (e.g. a self-hosted or proxy endpoint)."
     )
 
-    ui_parser = subparsers.add_parser("ui", help="Launch a local Gradio UI (requires the 'ui' extra: pip install -e '.[ui]').")
-    ui_parser.add_argument("--port", type=int, default=None, help="Port to serve on (default: let Gradio pick one).")
+    ui_parser = subparsers.add_parser(
+        "ui", help="Launch the local web UI (requires the 'webui' extra: pip install -e '.[webui]')."
+    )
+    ui_parser.add_argument("--port", type=int, default=None, help="Port to serve on (default: 8765).")
+    ui_parser.add_argument("--no-browser", action="store_true", help="Don't automatically open a browser tab.")
+
+    gradio_ui_parser = subparsers.add_parser(
+        "ui-gradio", help="Launch the legacy Gradio UI (requires the 'ui' extra: pip install -e '.[ui]')."
+    )
+    gradio_ui_parser.add_argument("--port", type=int, default=None, help="Port to serve on (default: let Gradio pick one).")
 
     args = parser.parse_args(argv)
 
     if args.command == "ui":
+        from .webapp import launch
+        try:
+            launch(port=args.port, open_browser=not args.no_browser)
+        except ImportError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if args.command == "ui-gradio":
         from .ui import launch
         try:
             launch(server_port=args.port)

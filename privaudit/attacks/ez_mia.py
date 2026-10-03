@@ -124,6 +124,15 @@ def _extract_stats(model: LoadedModel, texts: List[str], batch_size: int, sequen
 
 
 def _compute_ez_scores(target: LoadedModel, reference: LoadedModel, texts: List[str], batch_size: int, sequence_length: int) -> List[float]:
+    # Target and reference are compared token-by-token at the same positions, so both must be
+    # padded/truncated to the *same* effective length -- clamp to the smaller of the two
+    # models' context windows (if either is known), not independently per model, or long
+    # ("many chars") text could tokenize the two models' batches to different shapes.
+    for loaded in (target, reference):
+        context_limit = loaded.max_context_length()
+        if context_limit is not None:
+            sequence_length = min(sequence_length, context_limit)
+
     t_stats = _extract_stats(target, texts, batch_size, sequence_length)
     r_stats = _extract_stats(reference, texts, batch_size, sequence_length)
     scores = []

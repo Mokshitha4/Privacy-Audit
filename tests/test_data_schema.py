@@ -4,6 +4,49 @@ import pytest
 
 from privaudit.data.schema import build_schema
 
+# ---------------------------------------------------------------------------
+# load_texts(): a wrong `format` for the actual file content should fail with
+# a clear, actionable message instead of a raw pandas parser traceback.
+# ---------------------------------------------------------------------------
+
+def test_load_texts_csv_format_on_a_jsonl_file_gives_an_actionable_error(tmp_path):
+    # Real JSONL rows vary in embedded-comma count line to line (longer dialog turns, etc.),
+    # which is exactly what makes pandas' CSV parser choke with a field-count mismatch -- a
+    # uniform/short fake file wouldn't reproduce it.
+    jsonl_path = tmp_path / "train.jsonl"
+    jsonl_path.write_text(
+        '{"dialog": [{"role": "user", "content": "a"}]}\n'
+        '{"dialog": [{"role": "user", "content": "a"}]}\n'
+        '{"dialog": [{"role": "user", "content": "a"}]}\n'
+        '{"dialog": [{"role": "user", "content": "a, b, c, d, e, f, g, h"}, {"role": "assistant", "content": "z"}]}\n',
+        encoding="utf-8",
+    )
+    schema = build_schema({"format": "csv", "member_file": "train.jsonl", "nonmember_file": "x", "text_field": "note"})
+
+    with pytest.raises(ValueError, match="looks like JSONL"):
+        schema.load_texts(tmp_path, "train.jsonl")
+
+
+def test_load_texts_jsonl_format_on_a_csv_file_gives_an_actionable_error(tmp_path):
+    csv_path = tmp_path / "train.csv"
+    csv_path.write_text("note,label\nhello,0\nworld,1\n", encoding="utf-8")
+    schema = build_schema({"format": "jsonl", "member_file": "train.csv", "nonmember_file": "x", "text_field": "note"})
+
+    with pytest.raises(ValueError, match="doesn't look like JSONL"):
+        schema.load_texts(tmp_path, "train.csv")
+
+
+def test_load_texts_csv_happy_path_still_works(tmp_path):
+    (tmp_path / "train.csv").write_text("note\nhello\nworld\n", encoding="utf-8")
+    schema = build_schema({"format": "csv", "member_file": "train.csv", "nonmember_file": "x", "text_field": "note"})
+    assert schema.load_texts(tmp_path, "train.csv") == ["hello", "world"]
+
+
+def test_load_texts_jsonl_happy_path_still_works(tmp_path):
+    (tmp_path / "train.jsonl").write_text('{"note": "hello"}\n{"note": "world"}\n', encoding="utf-8")
+    schema = build_schema({"format": "jsonl", "member_file": "train.jsonl", "nonmember_file": "x", "text_field": "note"})
+    assert schema.load_texts(tmp_path, "train.jsonl") == ["hello", "world"]
+
 
 def test_schema_with_text_template():
     schema = build_schema({

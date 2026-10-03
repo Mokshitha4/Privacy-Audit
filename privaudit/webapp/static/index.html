@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Audit</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+          <rect x="3.5" y="2.5" width="12.5" height="16.5" rx="1.2"/>
+          <rect x="6" y="6.4" width="7.5" height="1.7" fill="currentColor" stroke="none"/>
+          <rect x="6" y="9.6" width="5.5" height="1.7" fill="currentColor" stroke="none"/>
+          <rect x="6" y="12.8" width="6.5" height="1.7" fill="currentColor" stroke="none"/>
+          <circle class="mag-lens" cx="17.1" cy="17.1" r="3.6" stroke-width="1.5"/>
+          <line x1="19.6" y1="19.6" x2="21.6" y2="21.6" stroke-width="1.6"/>
+        </svg>
+      </span>
+      <div class="brand-text">
+        <h1>Privacy Audit</h1>
+        <p>Check a fine-tuned clinical LLM for training-data leakage</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="local-badge" title="No step in this run sends your model, data, or results anywhere.">
+        <span class="local-badge-line1">Local run</span>
+        <span class="local-badge-line2">nothing leaves this machine</span>
+      </span>
+      <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle theme" title="Toggle light / dark">
+        <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 4a1 1 0 0 1-1-1V1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1Zm0 19a1 1 0 0 1-1-1v-2a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1ZM4.22 5.64a1 1 0 0 1-1.42 0L1.4 4.22a1 1 0 1 1 1.42-1.42L4.22 4.2a1 1 0 0 1 0 1.44Zm16.95 16.95a1 1 0 0 1-1.42 0l-1.4-1.42a1 1 0 1 1 1.42-1.42l1.4 1.42a1 1 0 0 1 0 1.42ZM1 13a1 1 0 0 1 0-2h2a1 1 0 1 1 0 2H1Zm19 0a1 1 0 0 1 0-2h2a1 1 0 1 1 0 2h-2ZM4.22 18.36a1 1 0 0 1 0 1.42l-1.4 1.4a1 1 0 1 1-1.42-1.4l1.4-1.42a1 1 0 0 1 1.42 0Zm16.95-16.95a1 1 0 0 1 0 1.42l-1.4 1.4a1 1 0 1 1-1.42-1.4l1.4-1.42a1 1 0 0 1 1.42 0ZM12 6.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20.74 13.52a8.5 8.5 0 0 1-10.3-10.4 1 1 0 0 0-1.26-1.21A10.5 10.5 0 1 0 22 14.76a1 1 0 0 0-1.26-1.24Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- ===================== LEFT: configuration ===================== -->
+    <section class="col col-config">
+
+      <form id="audit-form" class="sheet">
+
+        <details class="card" open>
+          <summary><span class="step">1.</span> Model <span class="summary-hint">what you're auditing</span></summary>
+          <div class="card-body">
+            <div class="grid-2">
+              <label>Source
+                <select id="model_source" data-group="model-source">
+                  <option value="huggingface" selected>huggingface</option>
+                  <option value="local_checkpoint">local_checkpoint</option>
+                  <option value="api_endpoint">api_endpoint</option>
+                  <option value="openai">openai</option>
+                </select>
+              </label>
+              <label>Access
+                <select id="model_access">
+                  <option value="white_box" selected>white_box</option>
+                  <option value="black_box">black_box</option>
+                </select>
+              </label>
+            </div>
+            <label>Identifier
+              <input id="model_identifier" type="text" placeholder="HF hub id, local checkpoint path, API endpoint URL, or OpenAI model name (e.g. gpt-4o-mini)">
+            </label>
+
+            <div class="cond" data-show="model-source" data-show-values="huggingface,local_checkpoint">
+              <label>base_model <span class="hint">optional, only for a LoRA/PEFT checkpoint without adapter_config.json</span>
+                <input id="model_base_model" type="text" placeholder="e.g. Qwen/Qwen3-0.6B">
+              </label>
+            </div>
+
+            <div class="cond" data-show="model-source" data-show-values="openai">
+              <div class="grid-2">
+                <label>api_key <span class="hint">blank = OPENAI_API_KEY env var</span>
+                  <input id="model_api_key" type="password" placeholder="sk-...">
+                </label>
+                <label>base_url <span class="hint">optional</span>
+                  <input id="model_base_url" type="text" placeholder="https://api.openai.com/v1">
+                </label>
+              </div>
+            </div>
+
+            <label class="switch-row">
+              <span class="switch"><input id="ft_enabled" type="checkbox"><span class="slider"></span></span>
+              Record fine-tuning metadata (optional)
+            </label>
+            <div class="cond" data-show="ft_enabled">
+              <div class="grid-3">
+                <label>regime
+                  <select id="ft_regime">
+                    <option value="full_ft" selected>full_ft</option>
+                    <option value="qlora">qlora</option>
+                    <option value="dp_sgd">dp_sgd</option>
+                  </select>
+                </label>
+                <label>loss
+                  <select id="ft_loss">
+                    <option value="full" selected>full</option>
+                    <option value="masked">masked</option>
+                  </select>
+                </label>
+                <label>epsilon <span class="hint">DP-SGD budget</span>
+                  <input id="ft_epsilon" type="text" placeholder="blank otherwise">
+                </label>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="card" open>
+          <summary><span class="step">2.</span> Data <span class="summary-hint">member / non-member split</span></summary>
+          <div class="card-body">
+            <div class="grid-2">
+              <label>role
+                <select id="data_role">
+                  <option value="member_nonmember_split" selected>member_nonmember_split</option>
+                  <option value="rag_corpus">rag_corpus</option>
+                </select>
+              </label>
+              <label>format
+                <select id="schema_format">
+                  <option value="csv" selected>csv</option>
+                  <option value="jsonl">jsonl</option>
+                </select>
+              </label>
+            </div>
+            <label>path <span class="hint">local directory holding the member/non-member files, never uploaded anywhere</span>
+              <input id="data_path" type="text" placeholder="/local/path/to/your/data">
+            </label>
+            <div class="grid-2">
+              <label>member_file
+                <input id="schema_member_file" type="text" value="train.csv">
+              </label>
+              <label>nonmember_file
+                <input id="schema_nonmember_file" type="text" value="test.csv">
+              </label>
+            </div>
+            <label>text_field <span class="hint">column/key holding the text, used when text_template is blank</span>
+              <input id="schema_text_field" type="text" value="note">
+            </label>
+            <label>text_template <span class="hint">optional, overrides text_field; Python str.format against each row</span>
+              <input id="schema_text_template" type="text" placeholder="Question: {dialog[0][content]}&#10;Answer: {dialog[1][content]}">
+            </label>
+          </div>
+        </details>
+
+        <details class="card" open>
+          <summary><span class="step">3.</span> Attacks <span class="summary-hint">which checks to run</span></summary>
+          <div class="card-body no-gap">
+
+            <div class="attack-block">
+              <label class="switch-row attack-row">
+                <span class="switch"><input id="em_enabled" type="checkbox" checked><span class="slider"></span></span>
+                <span class="attack-name">EM <span class="attack-full">Exact Memorization</span></span>
+              </label>
+              <div class="cond" data-show="em_enabled">
+                <div class="grid-3">
+                  <label>prefix_len
+                    <input id="em_prefix_len" type="number" value="50">
+                  </label>
+                  <label>continuation_len <span class="hint">tokens held out as groundtruth</span>
+                    <input id="em_continuation_len" type="number" value="500">
+                  </label>
+                  <label>max_samples <span class="hint">blank = all eligible</span>
+                    <input id="em_max_samples" type="text" placeholder="all">
+                  </label>
+                </div>
+                <label>ngram_ns <span class="hint">memorization-event n-gram window sizes</span>
+                  <input id="em_ngram_ns" type="text" value="10, 20, 30, 50">
+                </label>
+              </div>
+            </div>
+
+            <div class="attack-block">
+              <label class="switch-row attack-row">
+                <span class="switch"><input id="mia_enabled" type="checkbox"><span class="slider"></span></span>
+                <span class="attack-name">MIA <span class="attack-full">Membership Inference, Random Forest</span></span>
+              </label>
+              <div class="cond" data-show="mia_enabled">
+                <div class="grid-3">
+                  <label>num_members <span class="hint">blank = all</span>
+                    <input id="mia_num_members" type="text" placeholder="all">
+                  </label>
+                  <label>num_nonmembers <span class="hint">blank = all</span>
+                    <input id="mia_num_nonmembers" type="text" placeholder="all">
+                  </label>
+                  <label>max_length
+                    <input id="mia_max_length" type="number" value="512">
+                  </label>
+                </div>
+                <div class="grid-3">
+                  <label>k_percent <span class="hint">Min-k%-Prob's k</span>
+                    <input id="mia_k_percent" type="number" value="20">
+                  </label>
+                  <label>n_folds
+                    <input id="mia_n_folds" type="number" value="5">
+                  </label>
+                  <label>batch_size
+                    <input id="mia_batch_size" type="number" value="8">
+                  </label>
+                </div>
+                <label class="narrow">seed
+                  <input id="mia_seed" type="number" value="42">
+                </label>
+              </div>
+            </div>
+
+            <div class="attack-block">
+              <label class="switch-row attack-row">
+                <span class="switch"><input id="ezmia_enabled" type="checkbox"><span class="slider"></span></span>
+                <span class="attack-name">EZ_MIA <span class="attack-full">lightweight MIA, needs a reference model</span></span>
+              </label>
+              <div class="cond" data-show="ezmia_enabled">
+                <p class="section-label">Reference model, compared against the model above; only used by EZ_MIA</p>
+                <div class="grid-2">
+                  <label>source
+                    <select id="ref_source" data-group="ref-source">
+                      <option value="huggingface" selected>huggingface</option>
+                      <option value="local_checkpoint">local_checkpoint</option>
+                      <option value="api_endpoint">api_endpoint</option>
+                      <option value="openai">openai</option>
+                    </select>
+                  </label>
+                  <label>access
+                    <select id="ref_access">
+                      <option value="white_box" selected>white_box</option>
+                      <option value="black_box">black_box</option>
+                    </select>
+                  </label>
+                </div>
+                <label>identifier
+                  <input id="ref_identifier" type="text" placeholder="HF hub id or local path">
+                </label>
+                <div class="cond" data-show="ref-source" data-show-values="huggingface,local_checkpoint">
+                  <label>base_model <span class="hint">optional</span>
+                    <input id="ref_base_model" type="text">
+                  </label>
+                </div>
+                <div class="cond" data-show="ref-source" data-show-values="openai">
+                  <div class="grid-2">
+                    <label>api_key <span class="hint">blank = OPENAI_API_KEY env var</span>
+                      <input id="ref_api_key" type="password" placeholder="sk-...">
+                    </label>
+                    <label>base_url <span class="hint">optional</span>
+                      <input id="ref_base_url" type="text" placeholder="https://api.openai.com/v1">
+                    </label>
+                  </div>
+                </div>
+                <p class="section-label">EZ_MIA parameters</p>
+                <div class="grid-3">
+                  <label>num_members <span class="hint">blank = all</span>
+                    <input id="ezmia_num_members" type="text" placeholder="all">
+                  </label>
+                  <label>num_nonmembers <span class="hint">blank = all</span>
+                    <input id="ezmia_num_nonmembers" type="text" placeholder="all">
+                  </label>
+                  <label>sequence_length
+                    <input id="ezmia_sequence_length" type="number" value="128">
+                  </label>
+                </div>
+                <div class="grid-3">
+                  <label>batch_size
+                    <input id="ezmia_batch_size" type="number" value="8">
+                  </label>
+                  <label>seed
+                    <input id="ezmia_seed" type="number" value="42">
+                  </label>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </details>
+
+        <details class="card">
+          <summary><span class="step">4.</span> Output</summary>
+          <div class="card-body">
+            <label class="switch-row">
+              <span class="switch"><input id="return_raw_generations" type="checkbox"><span class="slider"></span></span>
+              Include raw model generations in the report (off by default)
+            </label>
+          </div>
+        </details>
+
+        <details class="card">
+          <summary><span class="step">5.</span> AI narration <span class="summary-hint">optional</span></summary>
+          <div class="card-body">
+            <label class="switch-row">
+              <span class="switch"><input id="llm_enabled" type="checkbox"><span class="slider"></span></span>
+              Narrate the results with an LLM
+            </label>
+            <p class="hint">Sends only the rule-based summary below (verdicts and rounded scores, never raw text or raw_generations) to the provider you choose.</p>
+            <div class="cond" data-show="llm_enabled">
+              <div class="grid-2">
+                <label>provider
+                  <select id="llm_provider">
+                    <option value="anthropic" selected>anthropic</option>
+                    <option value="openai">openai</option>
+                    <option value="huggingface">huggingface</option>
+                    <option value="openrouter">openrouter</option>
+                  </select>
+                </label>
+                <label>api_key <span class="hint">blank = env var</span>
+                  <input id="llm_api_key" type="password" placeholder="ANTHROPIC_API_KEY / OPENAI_API_KEY / HF_TOKEN / OPENROUTER_API_KEY">
+                </label>
+              </div>
+              <div class="grid-2">
+                <label>model <span class="hint">optional</span>
+                  <input id="llm_model" type="text" placeholder="e.g. claude-sonnet-5, gpt-4o-mini">
+                </label>
+                <label>base_url <span class="hint">optional</span>
+                  <input id="llm_base_url" type="text" placeholder="self-hosted / proxy endpoint">
+                </label>
+              </div>
+            </div>
+          </div>
+        </details>
+
+      </form>
+
+      <div class="action-bar">
+        <span id="form-message" class="form-message" role="status"></span>
+        <div class="action-buttons">
+          <button type="button" id="btn-preview" class="btn btn-ghost">Preview config</button>
+          <button type="button" id="btn-validate" class="btn btn-ghost">Validate</button>
+          <button type="button" id="btn-run" class="btn btn-primary">
+            <span class="btn-icon"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></span>
+            <span class="btn-label">Run audit</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== RIGHT: status + results ===================== -->
+    <section class="col col-results">
+
+      <div class="sheet">
+        <div class="card-section">
+          <div class="card-header-static">
+            <h2>Status</h2>
+            <span id="run-indicator" class="run-indicator"><span class="pulse"></span>idle</span>
+          </div>
+          <div class="card-body">
+            <pre id="status-log" class="status-log">Nothing running yet.</pre>
+          </div>
+        </div>
+
+        <div class="card-section">
+          <div class="card-header-static">
+            <h2>Findings</h2>
+          </div>
+          <div class="card-body">
+            <div id="results-placeholder" class="placeholder">Run a check to see a plain-language explanation of the results here.</div>
+            <div id="results-content" class="hidden"></div>
+          </div>
+        </div>
+      </div>
+
+      <details class="card card-standalone">
+        <summary><span class="step">&#9881;</span> Technical details</summary>
+        <div class="card-body">
+          <div class="tech-tabs">
+            <button type="button" class="tech-tab active" data-tab="config">Job config</button>
+            <button type="button" class="tech-tab" data-tab="report">Report JSON</button>
+          </div>
+          <div class="tech-panel-wrap">
+            <div class="tech-panel active" data-panel="config">
+              <button type="button" class="copy-btn" data-copy="config">Copy</button>
+              <pre id="config-json" class="json-view">// Click "Preview config" to generate.</pre>
+            </div>
+            <div class="tech-panel" data-panel="report">
+              <button type="button" class="copy-btn" data-copy="report">Copy</button>
+              <pre id="report-json" class="json-view">// Run an audit to populate this.</pre>
+            </div>
+          </div>
+        </div>
+      </details>
+
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    privaudit. Local-first privacy audit for fine-tuned clinical LLMs. Nothing leaves this machine unless you explicitly enable AI narration.
+  </footer>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

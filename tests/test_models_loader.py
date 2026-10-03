@@ -10,10 +10,12 @@ local path without any hub lookup, so the detection logic is fully testable offl
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
+import torch
 
-from privaudit.models.loader import ModelConfig, _try_load_peft_config, load_model
+from privaudit.models.loader import LoadedModel, ModelConfig, _try_load_peft_config, load_model
 
 
 def _write_adapter_config(directory, base_model_name_or_path=None):
@@ -150,3 +152,116 @@ def test_openai_generate_respects_custom_base_url(monkeypatch):
     )
     LoadedModel(cfg).generate_greedy("hi", max_new_tokens=10)
     assert captured["url"] == "https://my-proxy.example.com/v1/chat/completions"
+
+
+# ---------------------------------------------------------------------------
+# max_context_length() / sequence_stats() truncation-length clamping
+#
+# Long ("many chars") dataset text tokenizes to many tokens; without clamping,
+# MIA's/EZ-MIA's max_length/sequence_length params could exceed the actual loaded model's
+# position-embedding table and crash deep inside model.forward() with an opaque IndexError
+# instead of just truncating further, the way `truncation=True` already does for every
+# shorter case.
+# ---------------------------------------------------------------------------
+
+def _white_box_cfg():
+    return ModelConfig(source="local_checkpoint", identifier="x", access="white_box")
+
+
+class _FakeTorchModel:
+    """Duck-typed stand-in for a loaded transformers model: only exposes what
+    max_context_length()/sequence_stats() actually touch."""
+
+    def __init__(self, max_position_embeddings=None, vocab_size=4):
+        self.config = SimpleNamespace()
+        if max_position_embeddings is not None:
+            self.config.max_position_embeddings = max_position_embeddings
+        self.vocab_size = vocab_size
+
+    def eval(self):
+        return self
+
+    def __call__(self, **kwargs):
+        batch, seq_len = kwargs["input_ids"].shape
+        return SimpleNamespace(logits=torch.zeros(batch, seq_len, self.vocab_size))
+
+
+class _FakeTokenizer:
+    def __init__(self, model_max_length=None, calls=None):
+        if model_max_length is not None:
+            self.model_max_length = model_max_length
+        self._calls = calls if calls is not None else []
+
+    def __call__(self, texts, return_tensors="pt", padding=True, truncation=True, max_length=512):
+        self._calls.append(max_length)
+        seq_len = min(max_length, 3)
+        n = len(texts)
+        return {
+            "input_ids": torch.randint(0, 4, (n, seq_len)),
+            "attention_mask": torch.ones(n, seq_len, dtype=torch.long),
+        }
+
+
+def test_max_context_length_none_when_model_not_loaded():
+    loaded = LoadedModel(ModelConfig(source="openai", identifier="x", access="black_box"))
+    assert loaded.max_context_length() is None
+
+
+def test_max_context_length_reads_model_config():
+    loaded = LoadedModel(_white_box_cfg(), model=_FakeTorchModel(max_position_embeddings=1024), tokenizer=_FakeTokenizer())
+    assert loaded.max_context_length() == 1024
+
+
+def test_max_context_length_ignores_tokenizer_sentinel():
+    # transformers reports int(1e30) for model_max_length when a tokenizer's config never set
+    # a real one -- that must not be mistaken for an actual (tiny) limit.
+    loaded = LoadedModel(
+        _white_box_cfg(),
+        model=_FakeTorchModel(max_position_embeddings=1024),
+        tokenizer=_FakeTokenizer(model_max_length=int(1e30)),
+    )
+    assert loaded.max_context_length() == 1024
+
+
+def test_max_context_length_takes_the_smaller_of_config_and_tokenizer():
+    loaded = LoadedModel(
+        _white_box_cfg(),
+        model=_FakeTorchModel(max_position_embeddings=1024),
+        tokenizer=_FakeTokenizer(model_max_length=256),
+    )
+    assert loaded.max_context_length() == 256
+
+
+def test_max_context_length_none_when_neither_source_reports_a_limit():
+    loaded = LoadedModel(_white_box_cfg(), model=_FakeTorchModel(), tokenizer=_FakeTokenizer())
+    assert loaded.max_context_length() is None
+
+
+def test_sequence_stats_clamps_max_length_to_the_models_actual_context_window():
+    calls = []
+    loaded = LoadedModel(
+        _white_box_cfg(),
+        model=_FakeTorchModel(max_position_embeddings=8),
+        tokenizer=_FakeTokenizer(calls=calls),
+        device=torch.device("cpu"),
+    )
+
+    loaded.sequence_stats(["a very long piece of text" * 50] * 2, batch_size=2, max_length=4096, k_percent=20)
+
+    # Clamped from the requested 4096 down to the model's real 8-token window, not passed
+    # through as-is.
+    assert calls == [8]
+
+
+def test_sequence_stats_leaves_max_length_untouched_when_it_is_already_smaller():
+    calls = []
+    loaded = LoadedModel(
+        _white_box_cfg(),
+        model=_FakeTorchModel(max_position_embeddings=1024),
+        tokenizer=_FakeTokenizer(calls=calls),
+        device=torch.device("cpu"),
+    )
+
+    loaded.sequence_stats(["short text"], batch_size=1, max_length=64, k_percent=20)
+
+    assert calls == [64]

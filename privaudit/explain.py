@@ -11,11 +11,11 @@ from typing import Dict, List, Optional
 
 # Ordered worse-to-better so verdicts can be compared/aggregated.
 _VERDICT_ORDER = ["none", "weak", "strong"]
-_VERDICT_LABEL = {"none": "No evidence", "weak": "Weak signal", "strong": "Strong signal"}
+_VERDICT_LABEL = {"none": "No signal", "weak": "Weak signal", "strong": "Strong signal"}
 _VERDICT_BADGE = {"none": "⚪", "weak": "🟡", "strong": "🔴"}
 
 _DISCLAIMER = (
-    "This summary is generated locally from the numeric scores above using fixed rules -- no data "
+    "This summary is generated locally from the numeric scores above using fixed rules. No data "
     "or scores were sent anywhere to produce it. It is not a legal, clinical, or regulatory "
     "determination, and does not replace a full privacy review. Different attacks measure "
     "different kinds of leakage and can legitimately disagree; that disagreement is itself "
@@ -50,7 +50,7 @@ def _explain_em(metrics: Dict) -> dict:
         if top_rate > 0:
             detail.append(
                 f"{top_rate:.0%} of tested prompts caused the model to output a verbatim "
-                f"{top_n}-token match with the real training continuation -- a coincidence this "
+                f"{top_n}-token match with the real training continuation. A coincidence this "
                 "exact is effectively impossible by chance."
             )
         else:
@@ -66,7 +66,7 @@ def _explain_em(metrics: Dict) -> dict:
     headline = {
         "none": "No exact memorization detected in the tested samples.",
         "weak": "The model rarely reproduced training text word-for-word.",
-        "strong": "The model frequently reproduced training text word-for-word -- a clear memorization signal.",
+        "strong": "The model frequently reproduced training text word-for-word. This is a clear memorization signal.",
     }[band]
 
     return {
@@ -101,13 +101,13 @@ def _explain_mia(metrics: Dict) -> dict:
     if auc is not None:
         detail.append(
             f"ROC-AUC: {auc:.2f} (0.50 = indistinguishable from guessing, 1.00 = perfectly distinguishable; "
-            "shown for reference only -- the 5%-false-alarm figure above is the one to trust)."
+            "shown for reference only, the 5%-false-alarm figure above is the one to trust)."
         )
 
     headline = {
         "none": "No stronger than random guessing at telling training data apart from held-out data.",
         "weak": "A modest number of training examples could be identified as such by an attacker.",
-        "strong": "Training examples can be reliably picked out from held-out data -- a clear membership-inference risk.",
+        "strong": "Training examples can be reliably picked out from held-out data. This is a clear membership-inference risk.",
     }[band]
 
     return {
@@ -136,9 +136,9 @@ def _explain_ez_mia(metrics: Dict) -> dict:
         detail.append(f"At a strict 1% false-alarm rate: {tpr1:.0%} of training examples correctly flagged as such.")
 
     headline = {
-        "none": "No meaningful difference from the reference model -- no signal detected by this check.",
+        "none": "No meaningful difference from the reference model. No signal detected by this check.",
         "weak": "A modest difference from the reference model was detected.",
-        "strong": "A clear difference from the reference model was detected -- a membership-inference risk.",
+        "strong": "A clear difference from the reference model was detected. This is a membership-inference risk.",
     }[band]
 
     return {
@@ -164,15 +164,15 @@ def _agreement_note(families: List[dict]) -> Optional[str]:
     if len(levels) == 1:
         level = next(iter(levels))
         if level == "none":
-            return "Every check run here found no signal -- a consistent (though not conclusive) picture of low leakage risk."
+            return "Every check run here found no signal, a consistent though not conclusive picture of low leakage risk."
         return f"Every check run here agrees: {_VERDICT_LABEL[level].lower()} of leakage."
 
     strongest = max(verdicts.items(), key=lambda kv: _VERDICT_ORDER.index(kv[1]))
     weakest = min(verdicts.items(), key=lambda kv: _VERDICT_ORDER.index(kv[1]))
     return (
         f"These checks disagree: {strongest[0]} shows {_VERDICT_LABEL[strongest[1]].lower()} while "
-        f"{weakest[0]} shows {_VERDICT_LABEL[weakest[1]].lower()}. Don't rely on either one alone -- "
-        "running multiple attack families and reading them together, as you just did, is exactly the point."
+        f"{weakest[0]} shows {_VERDICT_LABEL[weakest[1]].lower()}. Don't rely on either one alone. "
+        "Running multiple attack families and reading them together, as you just did, is exactly the point."
     )
 
 
@@ -192,7 +192,7 @@ def render_markdown(explanation: dict) -> str:
     """Render an explanation (from `summarize()`) as Markdown for display in the UI or CLI."""
     lines: List[str] = ["## What this run found"]
     for family in explanation["families"]:
-        lines.append(f"\n### {family['badge']} {family['name']} -- {family['verdict_label']}")
+        lines.append(f"\n### {family['badge']} {family['name']}: {family['verdict_label']}")
         lines.append(f"*{family['what_it_checks']}*")
         lines.append("")
         lines.append(f"**{family['headline']}**")

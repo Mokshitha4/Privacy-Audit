@@ -34,10 +34,25 @@ class DatasetSchema:
         path = dataset_dir / file_name
         if not path.exists():
             raise FileNotFoundError(f"Dataset file not found: {path}")
+        looks_like_jsonl = path.suffix.lower() in (".jsonl", ".json")
         if self.file_format == "csv":
-            df = pd.read_csv(path)
+            try:
+                df = pd.read_csv(path)
+            except pd.errors.ParserError as e:
+                hint = (
+                    f" {path.name} looks like JSONL, not CSV, from its extension; "
+                    "set data.schema.format to \"jsonl\" if so."
+                ) if looks_like_jsonl else ""
+                raise ValueError(f"Failed to parse {path} as CSV (data.schema.format == 'csv'): {e}{hint}") from e
         elif self.file_format == "jsonl":
-            df = pd.read_json(path, lines=True)
+            try:
+                df = pd.read_json(path, lines=True)
+            except ValueError as e:
+                hint = "" if looks_like_jsonl else (
+                    f" {path.name} doesn't look like JSONL from its extension; "
+                    "set data.schema.format to \"csv\" if it's actually CSV."
+                )
+                raise ValueError(f"Failed to parse {path} as JSONL (data.schema.format == 'jsonl'): {e}{hint}") from e
         else:
             raise ValueError(f"Unsupported file_format: {self.file_format}")
         texts = [self.row_to_text(_as_row_dict(row)) for _, row in df.iterrows()]

@@ -9,7 +9,7 @@ description = "Local-first privacy-leakage audit package for fine-tuned clinical
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.1",
-    "transformers>=4.40",
+    "transformers>=4.51",  # first release with Qwen3 and other newer causal-LM architectures
     "peft>=0.10",
     "scikit-learn>=1.3",
     "numpy>=1.24",
@@ -21,9 +21,14 @@ dependencies = [
 [project.optional-dependencies]
 bertscore = ["bert-score>=0.3.13"]
 dev = ["pytest>=7.4"]
+ui = ["gradio>=4"]
+webui = ["fastapi>=0.100", "uvicorn>=0.23", "websockets>=12"]  # /ws/run needs an actual websocket backend, not just uvicorn's HTTP side
 
 [project.scripts]
 privaudit = "privaudit.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["privaudit", "privaudit.*"]
+
+[tool.setuptools.package-data]
+privaudit = ["webapp/static/*", "webapp/static/fonts/*"]

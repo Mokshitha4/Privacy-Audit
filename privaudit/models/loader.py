@@ -58,6 +58,25 @@ class LoadedModel:
                 f"model '{self.cfg.identifier}' was loaded as {self.cfg.access}."
             )
 
+    def max_context_length(self) -> Optional[int]:
+        """Best-effort read of this model's actual position-embedding limit, so callers (MIA's
+        sequence_stats, EZ-MIA's _extract_stats) can clamp a requested truncation length instead
+        of overrunning it inside model.forward() with an opaque IndexError -- a real risk once
+        a dataset has long ("many chars") text and max_length/sequence_length isn't capped to
+        what the specific loaded model actually supports. Returns None when it can't be
+        determined (e.g. a black-box model with no local config), in which case the caller's
+        own requested length is used as-is."""
+        if self.model is None:
+            return None
+        config_limit = getattr(getattr(self.model, "config", None), "max_position_embeddings", None)
+        tokenizer_limit = getattr(self.tokenizer, "model_max_length", None) if self.tokenizer else None
+        # Tokenizers with no real limit set in their config report a huge sentinel
+        # (int(1e30) in HF `transformers`) instead of None -- treat that as "unknown".
+        if isinstance(tokenizer_limit, (int, float)) and tokenizer_limit > 1_000_000:
+            tokenizer_limit = None
+        candidates = [v for v in (config_limit, tokenizer_limit) if v]
+        return min(candidates) if candidates else None
+
     def generate_greedy(self, prompt: str, max_new_tokens: int) -> str:
         if self.is_white_box:
             inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
@@ -129,6 +148,9 @@ class LoadedModel:
         Requires white-box access (needs per-token logits).
         """
         self.require_white_box("token-level feature extraction (MIA/EZ-MIA)")
+        context_limit = self.max_context_length()
+        if context_limit is not None:
+            max_length = min(max_length, context_limit)
         losses, ppls, confidences, min_k_probs = [], [], [], []
         self.model.eval()
         for i in range(0, len(texts), batch_size):

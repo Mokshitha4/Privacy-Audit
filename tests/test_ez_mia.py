@@ -120,3 +120,59 @@ def test_run_uses_all_available_sequences_when_no_cap_given(monkeypatch):
     member_split = MemberSplit(member_texts=["m1", "m2", "m3"], nonmember_texts=["n1", "n2"])
     run(object(), member_split, {"family": "EZ_MIA", "variant": "default"}, output_cfg={}, reference_model=object())
     assert calls == [3, 2]
+
+
+# ---------------------------------------------------------------------------
+# _compute_ez_scores: sequence_length clamped to the models' actual context window
+#
+# Long ("many chars") text tokenizes to many tokens; target and reference are compared
+# token-by-token at the same positions, so both must be truncated to the *same* effective
+# length. Clamping independently per model (one of the first things tried here) would let a
+# shorter-context reference model produce shorter tensors than the target, breaking
+# _error_zone_pos_neg_sum_ratio's shape assumptions.
+# ---------------------------------------------------------------------------
+
+class _FakeLoadedModel:
+    def __init__(self, context_limit=None):
+        self._context_limit = context_limit
+
+    def max_context_length(self):
+        return self._context_limit
+
+
+def _stub_extract_stats(monkeypatch, calls):
+    def _fake_extract_stats(model, texts, batch_size, sequence_length):
+        calls.append(sequence_length)
+        return [
+            {
+                "correct": torch.zeros(1), "top1_idx": torch.zeros(1, dtype=torch.long),
+                "target_ids": torch.zeros(1, dtype=torch.long), "mask": torch.ones(1),
+            }
+            for _ in texts
+        ]
+    monkeypatch.setattr(ez_mia, "_extract_stats", _fake_extract_stats)
+
+
+def test_compute_ez_scores_clamps_to_the_smaller_of_the_two_models_context_windows(monkeypatch):
+    calls = []
+    _stub_extract_stats(monkeypatch, calls)
+
+    ez_mia._compute_ez_scores(
+        _FakeLoadedModel(context_limit=64), _FakeLoadedModel(context_limit=16),
+        ["text a", "text b"], batch_size=2, sequence_length=128,
+    )
+
+    # The smaller of the two (16), applied identically to both the target and reference call.
+    assert calls == [16, 16]
+
+
+def test_compute_ez_scores_uses_the_requested_length_when_neither_model_reports_a_limit(monkeypatch):
+    calls = []
+    _stub_extract_stats(monkeypatch, calls)
+
+    ez_mia._compute_ez_scores(
+        _FakeLoadedModel(context_limit=None), _FakeLoadedModel(context_limit=None),
+        ["text a"], batch_size=1, sequence_length=128,
+    )
+
+    assert calls == [128, 128]

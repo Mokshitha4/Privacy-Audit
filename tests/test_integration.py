@@ -7,7 +7,7 @@ directory, all three attack families running together (including a reference_mod
 EZ_MIA), and the final build_report()/validate_report() round trip. Two things are mocked:
 model loading itself (privaudit.runner.load_model), via one fake "LoadedModel" that
 implements the same duck-typed interface (tokenizer, .model, .device, generate_greedy(),
-sequence_stats()) the real one does; and EM's BERTScore-F1 call, which otherwise downloads a
+max_context_length(), sequence_stats()) the real one does; and EM's BERTScore-F1 call, which otherwise downloads a
 real embedding model over the network on first use (exact BERTScore behavior is out of scope
 for a pipeline-wiring test, and is unrelated to anything mocked here). Nothing in this file
 needs a GPU, network access, or real checkpoints. Also runs the same config through the
@@ -93,6 +93,9 @@ class _FakeLoadedModel:
 
     def generate_greedy(self, prompt, max_new_tokens):
         return " ".join(f"gen{i}" for i in range(min(max_new_tokens, 10)))
+
+    def max_context_length(self):
+        return None  # unknown, same as the real LoadedModel when it can't determine one
 
     def sequence_stats(self, texts, batch_size=8, max_length=512, k_percent=20):
         is_member = np.array([t.startswith("MEMBER") for t in texts])

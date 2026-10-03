@@ -7,7 +7,7 @@ the attack in a JSON config, get back a JSON report with the metric scores.
 No web platform, no hosted execution, no accounts. The report is the only thing that ever
 needs to leave your machine, and raw generations are opt-in and off by default.
 
-Built to accompany "Don't Call It Privacy Until You Pick a Metric" — the point of running
+Built to accompany "Don't Call It Privacy Until You Pick a Metric", the point of running
 several attack families side by side is that they disagree with each other, so no single
 metric should be trusted alone.
 
@@ -15,8 +15,8 @@ metric should be trusted alone.
 
 | Family     | What it measures | Needs |
 |------------|-------------------|-------|
-| `EM`       | Exact Memorization — prompts the model with a prefix from a training sequence and checks whether it regurgitates the held-out continuation (n-gram match, ROUGE-L, BLEU, BERTScore-F1). | Just the training (member) split. Works on any Q&A / instruction-formatted text. |
-| `MIA`      | Membership Inference — a Random Forest over per-sequence loss/perplexity/confidence/Min-k%-Prob features, evaluated with 5-fold CV. Canonical metric is TPR@5%FPR, not AUC (AUC averages over FPR thresholds no real adversary would use). | A member/non-member split, white-box model access. |
+| `EM`       | Exact Memorization: prompts the model with a prefix from a training sequence and checks whether it regurgitates the held-out continuation (n-gram match, ROUGE-L, BLEU, BERTScore-F1). | Just the training (member) split. Works on any Q&A / instruction-formatted text. |
+| `MIA`      | Membership Inference: a Random Forest over per-sequence loss/perplexity/confidence/Min-k%-Prob features, evaluated with 5-fold CV. Canonical metric is TPR@5%FPR, not AUC (AUC averages over FPR thresholds no real adversary would use). | A member/non-member split, white-box model access. |
 | `EZ_MIA`   | A lighter-weight MIA variant (arXiv:2601.12104) that compares a target and a reference model's confidence in "error-zone" tokens. Kept separate from `MIA` because the two attacks behave differently in practice (EZ-MIA tracks EM closely on full-loss checkpoints, near-chance on masked-loss; the Random Forest MIA doesn't). | A member/non-member split, white-box access to **both** a target and a reference model. |
 
 
@@ -26,7 +26,9 @@ metric should be trusted alone.
 pip install -e .
 # BERTScore-F1 (used by EM) needs an extra, network-downloaded embedding model:
 pip install -e ".[bertscore]"
-# the optional local UI (see below):
+# the local web UI (see below):
+pip install -e ".[webui]"
+# the legacy Gradio UI:
 pip install -e ".[ui]"
 # for running the test suite:
 pip install -e ".[dev]"
@@ -45,33 +47,48 @@ privaudit explain --report report.json   # plain-language summary, rule-based, n
 ## UI (optional)
 
 ```bash
-pip install -e ".[ui]"
-privaudit ui                 # opens on http://127.0.0.1:7860 by default
+pip install -e ".[webui]"
+privaudit ui                 # opens http://127.0.0.1:8765 in your browser
 privaudit ui --port 8080
+privaudit ui --no-browser    # just start the server, don't open a tab
 ```
 
-A local Gradio page wrapping the exact same JSON-in/JSON-out contract as the CLI. It's a
-**form**, not a raw JSON box: dropdowns for the enum fields (`source`, `access`, `role`,
-`format`, …), text inputs for the strings, and every attack parameter shown pre-filled with its
-default (`prefix_len` 50, `continuation_len` 500, MIA `n_folds` 5, …) so you edit only what you
-need. Each attack's parameters appear only when that attack is enabled; the `api_key`/`base_url`
+A local web UI wrapping the exact same JSON-in/JSON-out contract as the CLI: a small FastAPI
+backend (`privaudit/webapp/`) serving a hand-built, dependency-free HTML/CSS/JS frontend, no
+Node toolchain and nothing fetched from a CDN at runtime (even the serif typeface is bundled
+under `webapp/static/fonts/`, so the page works exactly the same offline). It's a **form**, not
+a raw JSON box: dropdowns for the enum fields (`source`, `access`, `role`, `format`, ...), text
+inputs for the strings, and every attack parameter shown pre-filled with its default
+(`prefix_len` 50, `continuation_len` 500, MIA `n_folds` 5, ...) so you edit only what you need.
+Each attack's parameters appear only when that attack is enabled; the `api_key`/`base_url`
 fields appear only when `source` is `openai`. The reference-model fields live inside the EZ_MIA
 section (not a separate step) and appear only when EZ_MIA is enabled, since it's the only attack
 that ever needs one.
 
 - **Preview config** shows the assembled JSON (copy it straight into `privaudit run --config`).
 - **Validate** runs the same schema check as `privaudit validate`.
-- **Run** streams live progress (loading the model, loading the dataset, each attack) into a
-  status log, then shows a plain-language explanation of the results front and center — the raw
-  report JSON stays available in a collapsed "Technical details" section.
+- **Run audit** streams live progress (loading the model, loading the dataset, each attack) into
+  a status log over a WebSocket, then shows a plain-language explanation of the results front
+  and center, with each attack family's verdict rendered as a stamped label (clear / weak /
+  leak detected) rather than a raw score. The full report JSON stays available in a collapsed
+  "Technical details" section.
 
-It adds no capability beyond `privaudit run` / `validate` / `explain`. Runs on `127.0.0.1` only
-(`share=False`, always) — nothing here is hosted or tunneled out; the page and everything it
-does stay on your machine, same as the CLI.
+It adds no capability beyond `privaudit run` / `validate` / `explain`; the server only ever
+binds to `127.0.0.1`, never tunneled or hosted elsewhere. A "local run" stamp in the header is a
+standing reminder of that, not just copy: nothing about a run leaves your machine unless you
+explicitly opt into AI narration below. Light and dark themes are both supported (toggle in the
+header); the design intentionally reads as a case file rather than a dashboard.
+
+The previous Gradio-based UI is still available for anyone who prefers it:
+
+```bash
+pip install -e ".[ui]"
+privaudit ui-gradio
+```
 
 ## Explaining a report
 
-Reports are numbers (`mem_at_50: 0.02`, `tpr_at_5pct_fpr: 0.05`, …) — useful for a reviewer,
+Reports are numbers (`mem_at_50: 0.02`, `tpr_at_5pct_fpr: 0.05`, ...), useful for a reviewer,
 opaque to anyone else. `privaudit explain` turns a report into plain language:
 
 ```bash
@@ -81,33 +98,32 @@ privaudit explain --report report.json
 ```
 ## What this run found
 
-### ⚪ Exact Memorization -- No evidence
+### ⚪ Exact Memorization: No signal
 *Whether prompting the model with the start of a real training example causes it to output the rest, word for word.*
 
 **No exact memorization detected in the tested samples.**
 - None of the tested prompts produced a verbatim 50-token match with the real training continuation.
 ...
 
-**Reading these together:** Every check run here found no signal -- a consistent (though not
-conclusive) picture of low leakage risk.
+**Reading these together:** Every check run here found no signal, a consistent though not conclusive picture of low leakage risk.
 ```
 
-This is entirely **rule-based and local** (`privaudit/explain.py`) — fixed thresholds turn each
+This is entirely **rule-based and local** (`privaudit/explain.py`): fixed thresholds turn each
 attack's numbers into a "no / weak / strong evidence" verdict with a one-line reason, and a
 closing note when attacks disagree with each other (the paper's central point: no single metric
 should be trusted alone). No network call, nothing sent anywhere, works offline. It reads only
-`report["metrics"]` — never `raw_generations`, even if the report has that opt-in field.
+`report["metrics"]`, never `raw_generations`, even if the report has that opt-in field.
 
 ### Optional: narrate it with an LLM
 
 `explain`'s rule-based summary can optionally be handed to an LLM to turn into a warmer,
-free-form narrative — for someone who wants prose, not a scored checklist. This is **off by
+free-form narrative, for someone who wants prose, not a scored checklist. This is **off by
 default**, additive (it's appended after the rule-based summary, never replaces it), and:
 
-- sends **only** the rule-based summary above — verdict labels and rounded scores — **never**
+- sends **only** the rule-based summary above (verdict labels and rounded scores), **never**
   `raw_generations`, never the raw report, never anything else on your machine;
 - needs **your own API key** for whichever provider you pick, the same bring-your-own-key model
-  the `openai` model source already uses — `privaudit` holds no key of its own;
+  the `openai` model source already uses; `privaudit` holds no key of its own;
 - falls back cleanly to the rule-based summary alone if the call fails for any reason.
 
 Four providers, picked with `--provider`: `anthropic`, `openai`, `huggingface` (via its
@@ -125,9 +141,9 @@ privaudit explain --report report.json --llm --provider huggingface --llm-model 
 privaudit explain --report report.json --llm --provider openrouter --llm-model anthropic/claude-3.5-sonnet
 ```
 
-`--llm-base-url` overrides the provider's default endpoint (a self-hosted router, a proxy, …).
+`--llm-base-url` overrides the provider's default endpoint (a self-hosted router, a proxy, ...).
 
-In the UI, the same toggle lives under "5. AI narration (optional)".
+In the UI, the same toggle lives under "5. AI narration".
 
 ## Job config
 
@@ -163,16 +179,16 @@ In the UI, the same toggle lives under "5. AI narration (optional)".
 }
 ```
 
-- **`model`** — `source` is `huggingface` (hub identifier), `local_checkpoint` (a local
+- **`model`**: `source` is `huggingface` (hub identifier), `local_checkpoint` (a local
   directory), `api_endpoint` (a generic HTTP endpoint you host yourself), or `openai` (the
   OpenAI API). `api_endpoint` and `openai` both require `access: "black_box"`, and only `EM`
   can run against a black-box model, since `MIA`/`EZ_MIA` need per-token logits.
-  - A **full fine-tune / DP-SGD checkpoint** — local or on the hub — is self-contained and
+  - A **full fine-tune / DP-SGD checkpoint**, local or on the hub, is self-contained and
     loads directly from `identifier`.
   - A **LoRA/PEFT adapter** only contains adapter weights, so the base model is loaded first
     and the adapter applied on top of it. This is detected from `identifier` alone and works
     identically whether `identifier` is a local checkpoint directory or an adapter repo
-    published on the HF hub — no separate config needed to say which. The base model is
+    published on the HF hub, no separate config needed to say which. The base model is
     normally auto-detected from the adapter's own `adapter_config.json`
     (`base_model_name_or_path`, written automatically when the adapter was saved); set
     `model.base_model` (an HF hub id or local path) to override that, or to supply it
@@ -180,22 +196,22 @@ In the UI, the same toggle lives under "5. AI narration (optional)".
     checkpoint). If the adapter itself ships no tokenizer (common for adapter-only repos),
     the base model's tokenizer is used instead. Setting `base_model` when `identifier` isn't
     actually a PEFT adapter is a fail-fast config error.
-  - **`api_endpoint`** — `identifier` is your endpoint's URL. `generate_greedy` POSTs
+  - **`api_endpoint`**: `identifier` is your endpoint's URL. `generate_greedy` POSTs
     `{"prompt", "max_new_tokens", "temperature": 0, "top_p": 1}` as JSON and expects
     `{"text": "..."}` back.
-  - **`openai`** — `identifier` is the OpenAI model name (e.g. `"gpt-4o-mini"`). Needs an API
+  - **`openai`**: `identifier` is the OpenAI model name (e.g. `"gpt-4o-mini"`). Needs an API
     key: set `model.api_key`, or leave it out and set the `OPENAI_API_KEY` environment variable
-    (preferred, so the key doesn't end up in a config file) — `privaudit` fails fast with a
+    (preferred, so the key doesn't end up in a config file); `privaudit` fails fast with a
     clear error if neither is set. `model.base_url` optionally points at an OpenAI-compatible
     endpoint instead of `https://api.openai.com/v1`. Talks to the real Chat Completions API
-    (`POST {base_url}/chat/completions`) via a plain HTTPS call — no `openai` package dependency.
-- **`reference_model`** — same shape as `model`. Only required when `EZ_MIA` is one of the
+    (`POST {base_url}/chat/completions`) via a plain HTTPS call, no `openai` package dependency.
+- **`reference_model`**: same shape as `model`. Only required when `EZ_MIA` is one of the
   requested attacks.
 - **`data.path`** is a local directory. Nothing under it is ever uploaded.
-- **`data.schema`** — required, describes your dataset; there's no dataset-specific
+- **`data.schema`**: required, describes your dataset; there's no dataset-specific
   special-casing (see below). Every attack here uses `data.role: "member_nonmember_split"`.
 - Each attack `family` (`EM`, `MIA`, `EZ_MIA`) may appear **at most once** per job.
-- `privaudit validate` / `privaudit run` fail fast with a specific error message — e.g. `MIA`
+- `privaudit validate` / `privaudit run` fail fast with a specific error message, e.g. `MIA`
   without `model.access: "white_box"`, `EZ_MIA` without a top-level `reference_model`, or
   `openai` without an API key anywhere.
 
@@ -211,7 +227,7 @@ In the UI, the same toggle lives under "5. AI narration (optional)".
 ```
 
 `format` is `csv` or `jsonl`. Use `text_template` instead of `text_field` to combine several
-columns into one training-format string — it's a Python `str.format` template applied to each
+columns into one training-format string: it's a Python `str.format` template applied to each
 row, and supports nested access for structured data, e.g. a chat-formatted JSONL row like
 `{"dialog": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}` can
 use `"text_template": "Question: {dialog[0][content]}\nAnswer: {dialog[1][content]}"`.
@@ -254,7 +270,7 @@ Every attack accepts an optional `params` object; all fields below have defaults
 
 ```json
 {
-  "job_id": "…",
+  "job_id": "...",
   "model_id": "your-org/your-finetuned-model",
   "attack_code_version": "0.1.0",
   "generated_at": "2026-09-04T12:00:00+00:00",
@@ -282,8 +298,10 @@ privaudit/
   runner.py                          # orchestrates one job end to end; on_progress callback for live status
   explain.py                         # rule-based, local, no-network plain-language report summary
   llm_explain.py                     # optional: narrate explain.py's summary with an LLM (opt-in, BYO key)
-  cli.py                             # `privaudit run` / `validate` / `explain` / `ui`
-  ui.py                              # optional local Gradio front end (extra: "ui")
+  cli.py                             # `privaudit run` / `validate` / `explain` / `ui` / `ui-gradio`
+  webapp/server.py                   # local web UI: FastAPI backend (extra: "webui")
+  webapp/static/                     # the web UI's HTML/CSS/JS and self-hosted font files
+  ui.py                              # legacy local Gradio front end (extra: "ui")
 ```
 
 ## Testing
@@ -301,12 +319,14 @@ Tests run against fake models (no GPU, no network, no real checkpoints) and are 
 - a full end-to-end run (`test_integration.py`): one job config with all three attack families,
   real temp-directory CSV data, and a mocked model, driven through the actual
   `runner.run_job()` orchestration and the real `privaudit run`/`validate`/`explain` CLI entry
-  points — not just each attack module called in isolation
+  points, not just each attack module called in isolation
 - job-config schema validation and fail-fast error messages
 - `explain.py` (rule-based summary bands, agreement/disagreement notes, and a check that it
   never reads `raw_generations`) and `llm_explain.py` (request/response shape for both
-  providers, missing-key handling, and the same never-touches-`raw_generations` guarantee) —
+  providers, missing-key handling, and the same never-touches-`raw_generations` guarantee),
   the latter with `urllib.request.urlopen` monkeypatched, so no real network call is made
+- the web UI's backend contract (`test_webapp.py`): `/api/validate` and a full WebSocket
+  round-trip through `/ws/run`, with `run_job`/`explain_with_llm` mocked out
 
 Full reproduction of the paper's non-degenerate numbers needs the actual fine-tuned checkpoints
 and a GPU, neither of which are available in this repo.

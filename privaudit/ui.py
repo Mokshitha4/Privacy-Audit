@@ -330,8 +330,8 @@ def build_app():
         gr.Markdown("# 🔒 Privacy Audit")
         gr.Markdown(
             "Check whether a fine-tuned clinical LLM leaks details from its training data. Fill in "
-            "the model and dataset below, run the checks, and read the plain-language summary -- no "
-            "privacy-attack background needed. Everything runs on this machine and stays here; "
+            "the model and dataset below, run the checks, and read the plain-language summary. "
+            "Everything runs on this machine and stays here; "
             "nothing is uploaded anywhere by this page.",
             elem_classes=["privaudit-lede"],
         )
