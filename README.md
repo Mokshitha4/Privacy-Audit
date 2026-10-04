@@ -1,23 +1,18 @@
-# privacy audit
+# Privacy audit
 
-A local-first privacy-leakage audit package for fine-tuned clinical LLMs. It wraps three
-attack families behind one consistent interface: point it at a model and a dataset, describe
-the attack in a JSON config, get back a JSON report with the metric scores.
+A local-first privacy-leakage audit package for fine-tuned clinical LLMs, usable as a command-line tool, a local web UI, or a plain Python package, all three run the exact same code underneath. Point it at a model and a dataset, describe which attacks to run, and get back a report with the scores.
 
-No web platform, no hosted execution, no accounts. The report is the only thing that ever
-needs to leave your machine, and raw generations are opt-in and off by default.
+It wraps three attack families behind one consistent interface: Exact Memorization, Membership Inference, and EZ-MIA. Running them side by side is the point, these metrics do not correlate with each other depending on task and fine-tuning setup, so no single one should be trusted alone. That finding comes from "Joint Auditing of Fine-Tuning and Privacy Metrics in Clinical LLMs," the paper this package was built to accompany.
 
-Built to accompany "Don't Call It Privacy Until You Pick a Metric", the point of running
-several attack families side by side is that they disagree with each other, so no single
-metric should be trusted alone.
+No web platform, no hosted execution, no accounts. The report is the only thing that ever leaves your machine, and even that only if you choose to share it, raw model generations are opt-in and off by default.
 
 ## Attack families
 
 | Family     | What it measures | Needs |
 |------------|-------------------|-------|
 | `EM`       | Exact Memorization: prompts the model with a prefix from a training sequence and checks whether it regurgitates the held-out continuation (n-gram match, ROUGE-L, BLEU, BERTScore-F1). | Just the training (member) split. Works on any Q&A / instruction-formatted text. |
-| `MIA`      | Membership Inference: a Random Forest over per-sequence loss/perplexity/confidence/Min-k%-Prob features, evaluated with 5-fold CV. Canonical metric is TPR@5%FPR, not AUC (AUC averages over FPR thresholds no real adversary would use). | A member/non-member split, white-box model access. |
-| `EZ_MIA`   | A lighter-weight MIA variant (arXiv:2601.12104) that compares a target and a reference model's confidence in "error-zone" tokens. Kept separate from `MIA` because the two attacks behave differently in practice (EZ-MIA tracks EM closely on full-loss checkpoints, near-chance on masked-loss; the Random Forest MIA doesn't). | A member/non-member split, white-box access to **both** a target and a reference model. |
+| `MIA`      | Membership Inference: a Random Forest over per-sequence loss/perplexity/confidence/Min-k%-Prob features, evaluated with 5-fold CV.  | A member/non-member split, white-box model access. |
+| `EZ_MIA`   | A lighter-weight MIA variant (arXiv:2601.12104) that compares a target and a reference model's confidence in "error-zone" tokens. Kept separate from `MIA` because the two attacks behave differently in practice. | A member/non-member split, white-box access to **both** a target and a reference model. |
 
 
 ## Install
