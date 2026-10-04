@@ -36,15 +36,62 @@ pip install -e ".[dev]"
 
 Requires Python >= 3.10.
 
-## Quick start
+## Quick start (CLI)
+
+Everything in this package runs end to end from the command line; the UI below is an optional
+form wrapped around these exact same commands, not a separate code path. The whole workflow is:
+write a job config once (see [Job config](#job-config) below), then run it.
 
 ```bash
-privaudit validate --config job.json     # schema-check a config without running anything
+# 1. Write your job config to job.json (model + data + which attacks to run; see Job config below)
+
+# 2. Schema-check it before touching a model or dataset -- catches a typo'd field name,
+#    a missing reference_model, etc. in milliseconds instead of after a model finishes loading.
+privaudit validate --config job.json
+
+# 3. Run it. Prints progress (loading the model, loading the dataset, each attack) as it goes,
+#    then writes the full JSON report.
 privaudit run --config job.json --output report.json
-privaudit explain --report report.json   # plain-language summary, rule-based, no network call
+
+# 4. Turn the numbers into a plain-language summary -- rule-based, local, no network call.
+privaudit explain --report report.json
 ```
 
-## UI (optional)
+## Use as a library
+
+A third option alongside the CLI and the UI: call the same functions directly from Python,
+e.g. from a notebook or your own pipeline. These are exactly what `cli.py` itself calls, not a
+separate wrapper API, so there's nothing the CLI can do that the library can't.
+
+```python
+from privaudit.report import validate_job_config
+from privaudit.runner import run_job
+from privaudit.explain import summarize, render_markdown
+
+job_cfg = {
+    "model": {"source": "huggingface", "identifier": "your-org/your-finetuned-model", "access": "white_box"},
+    "data": {
+        "role": "member_nonmember_split",
+        "schema": {"format": "csv", "member_file": "train.csv", "nonmember_file": "test.csv", "text_field": "note"},
+        "path": "/local/path/to/your/data",
+    },
+    "attacks": [{"family": "EM", "variant": "default"}],
+}
+
+validate_job_config(job_cfg)  # raises ValueError with a specific message on a bad config
+
+report = run_job(job_cfg, on_progress=print)  # on_progress is optional; called with a short
+                                               # status string at each stage (loading the model,
+                                               # loading the dataset, each attack)
+
+print(render_markdown(summarize(report)))  # the same plain-language summary `explain` prints
+```
+
+Optional LLM narration : `privaudit.llm_explain.explain_with_llm(report,
+LLMExplainConfig(provider="anthropic", ...))`, same opt-in, bring-your-own-key behavior as
+`--llm` below.
+
+## UI 
 
 ```bash
 pip install -e ".[webui]"
