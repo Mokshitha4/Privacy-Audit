@@ -354,8 +354,6 @@ pytest tests/ -q
 
 Tests run against fake models (no GPU, no network, no real checkpoints) and are structured as:
 - exact algorithmic correctness (ROUGE-L, BLEU, TPR@FPR, the EZ-MIA scoring kernel)
-- one exact reproduction of a published result: `EZ-MIA/results.csv`'s `icd_mimic` row
-  (AUC=0.5, TPR@1%FPR=0.010, TPR@0.1%FPR=0.001) is a degenerate, analytically-reproducible case
 - per-attack pipeline sanity checks against fake models with synthetic, clearly-separable data
   (`test_em.py`, `test_mia.py`, `test_ez_mia.py`)
 - a full end-to-end run (`test_integration.py`): one job config with all three attack families,
@@ -369,6 +367,3 @@ Tests run against fake models (no GPU, no network, no real checkpoints) and are 
   the latter with `urllib.request.urlopen` monkeypatched, so no real network call is made
 - the web UI's backend contract (`test_webapp.py`): `/api/validate` and a full WebSocket
   round-trip through `/ws/run`, with `run_job`/`explain_with_llm` mocked out
-
-Full reproduction of the paper's non-degenerate numbers needs the actual fine-tuned checkpoints
-and a GPU, neither of which are available in this repo.
