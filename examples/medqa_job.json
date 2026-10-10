@@ -1,0 +1,28 @@
+{
+  "model": {
+    "source": "huggingface",
+    "identifier": "Example_MedQA/Model-Qwen3-0.6b/final_checkpoint",
+    "access": "white_box"
+  },
+  "reference_model": {
+    "source": "huggingface",
+    "identifier": "Qwen/Qwen3-0.6B",
+    "access": "white_box"
+  },
+  "data": {
+    "role": "member_nonmember_split",
+    "schema": {
+      "format": "jsonl",
+      "member_file": "train_json.jsonl",
+      "nonmember_file": "val_json.jsonl",
+      "text_template": "Question: {dialog[0][content]}\nAnswer: {dialog[1][content]}"
+    },
+    "path": "Example_MedQA/Data"
+  },
+  "attacks": [
+    { "family": "EM", "variant": "default", "params": { "prefix_len": 50, "continuation_len": 500, "max_samples": 200 } },
+    { "family": "MIA", "variant": "default", "params": { "num_members": 100, "num_nonmembers": 100 } },
+    { "family": "EZ_MIA", "variant": "default", "params": { "num_members": 100, "num_nonmembers": 100 } }
+  ],
+  "output": { "return_raw_generations": false }
+}

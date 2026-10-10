@@ -328,6 +328,16 @@ Every attack accepts an optional `params` object; all fields below have defaults
 for EM, `tpr_at_5pct_fpr` for MIA, AUC for EZ_MIA. `raw_generations` is only present when
 `output.return_raw_generations` is `true`.
 
+## Example outputs
+
+A real run is checked in under [`examples/`](examples/): a LoRA-fine-tuned Qwen3-0.6B on MedQA, audited with all three attacks (EM on 200 samples; MIA and EZ-MIA on 100 members + 100 non-members each; reference model `Qwen/Qwen3-0.6B`), on CPU.
+
+- Input: [`examples/medqa_job.json`](examples/medqa_job.json)
+- Output: [`examples/medqa_report.json`](examples/medqa_report.json)
+- Plain-language summary: [`examples/medqa_explain.md`](examples/medqa_explain.md)
+
+The MedQA model and data are not in this repository, so that run is shown for reference rather than reproducible from a clone. See [`examples/README.md`](examples/README.md).
+
 ## Package layout
 
 ```
